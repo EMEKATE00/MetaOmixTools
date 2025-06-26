@@ -1,0 +1,1094 @@
+---
+title: "MetaAnalysisMethods"
+author: "Maksym Kupchyk Tiurin"
+date: "`r Sys.Date()`"
+address: Universidad de Valencia  
+format: 
+   html:  
+      number-sections: true
+      scrollable: true
+      toc: true
+      echo: true
+      embed-resources: true
+      theme: litera 
+---
+
+```{r,include=FALSE}
+#| label: Control de información en pantalla 
+doAll=FALSE
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{=html}
+<style>
+body {
+text-align: justify}
+</style>
+```
+# Introducción
+
+Se presenta una comparación de diversos paquetes que implementan distintos métodos estadísticos para el análisis y procesamiento de metadatos derivados de estudios y análisis biológicos. En esta evaluación, se consideran los siguientes paquetes:
+
+-   RankProd
+-   RankAggreg
+-   RobustRankAggreg
+-   RankAggregator
+-   topklist
+-   metap
+-   staRank
+
+Cada uno de estos paquetes emplea enfoques específicos para la integración y ordenación de listas de elementos biológicos, proporcionando herramientas para la combinación de rankings provenientes de diferentes fuentes.
+
+Además, se estudiaron más paquetes, pero su implementación no encajaba en la herramienta o estaban obsoletos:
+
+-   metaRNASeq
+-   rankdist
+-   GeneMeta
+-   MetaIntegrator
+-   RankAggSigFU
+
+# Datasets utilizados
+
+Se han tenido en cuenta 2 datasets:
+
+-   Dataset de 4 estudios (GSE10072, GSE19188, GSE63459 y GSE75037) correspondientes a la expresión de genes implicados en el cáncer de pulmon.
+
+-   Dataset de expresión diferencial comunmente utilizado como datos de prueba para el desarrollo de la herramiento SCI, compuesta por 3 casos de estudio correspondientes a modelos de lesiones modulares en rata.
+
+Para ambos datasets se ha buscado extraer 5 formatos posibles de input para los paquetes de estudiados:
+
+-   Una lista de genes rankeados sin ningún peso estadístico
+-   Una tabla con los genes rankeados teniendo en cuenta los valores de pvalue
+-   Una tabla con los genes rankeados teniendo en cuenta los valores de p.adjust
+-   Una tabla con los genes rankeados teniendo en cuenta los valores de logFC
+-   Una tabla completa con todas las columnas
+
+```{=html}
+<details>
+<summary>Haz click para mostrar el código</summary>
+```
+```{r}
+#| label: Se trabajará con los siguientes 2 datasets
+library(DT)
+# Se leen los archivos pertenecientes a cada dataset
+newfiles <- c("./Data/diffexp_Severe_Subacute_vs_Control.txt",
+              "./Data/diffexp_Severe_Late_chronic_vs_Control.txt",
+              "./Data/diffexp_Severe_Early_chronic_vs_Control.txt")
+
+oldfiles <- c("./Data/data1.tsv",
+              "./Data/data2.tsv",
+              "./Data/data3.tsv",
+              "./Data/data4.tsv")
+
+
+
+
+# Dataset de SCI de lesión medular de rata
+new_df <- lapply(newfiles, function(file) {
+  df <- read.delim(file, sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+  df <- df[!is.na(df$Gene), ]
+  df$Gene <- toupper(df$Gene)
+  df <- df[!duplicated(df$Gene), ]
+  df <- df[order(df$P.Value), ]
+  return(df)
+})
+
+names(new_df) <- basename(newfiles)
+
+str(new_df)
+head(new_df$diffexp_Severe_Subacute_vs_Control.txt)
+
+## Obtenemos únicamente la lista de genes (ordenada por P.Value)
+new_geneonly <- lapply(new_df, function(df) df$Gene)
+head(new_geneonly$diffexp_Severe_Subacute_vs_Control.txt)
+
+# Ordenar y extraer los datos de logFC, P.Value y adj.P.Val
+new_gene_logFC <- lapply(new_df, function(df) {
+  df_subset <- df[, c("Gene", "logFC")]
+  df_subset <- df_subset[order(df_subset$logFC, decreasing = TRUE), ]
+  return(df_subset)
+})
+head(new_gene_logFC$diffexp_Severe_Subacute_vs_Control.txt)
+
+new_gene_pval <- lapply(new_df, function(df) {
+  df_subset <- df[, c("Gene", "P.Value")]
+  df_subset <- df_subset[order(df_subset$P.Value, decreasing = FALSE), ]
+  return(df_subset)
+})
+head(new_gene_pval$diffexp_Severe_Subacute_vs_Control.txt)
+
+new_gene_padj <- lapply(new_df, function(df) {
+  df_subset <- df[, c("Gene", "adj.P.Val")]
+  df_subset <- df_subset[order(df_subset$adj.P.Val, decreasing = FALSE), ]
+  return(df_subset)
+})
+head(new_gene_padj$diffexp_Severe_Subacute_vs_Control.txt)
+
+# Crear matrices conjuntas
+all_genes <- unique(unlist(lapply(new_df, function(df) df$Gene)))
+
+logFC_matrix <- matrix(NA, nrow = length(all_genes), ncol = length(new_df))
+pval_matrix  <- matrix(NA, nrow = length(all_genes), ncol = length(new_df))
+padj_matrix  <- matrix(NA, nrow = length(all_genes), ncol = length(new_df))
+
+rownames(logFC_matrix) <- all_genes
+rownames(pval_matrix)  <- all_genes
+rownames(padj_matrix)  <- all_genes
+
+colnames(logFC_matrix) <- names(new_df)
+colnames(pval_matrix)  <- names(new_df)
+colnames(padj_matrix)  <- names(new_df)
+
+for (i in seq_along(new_df)) {
+  df <- new_df[[i]]
+  logFC_matrix[df$Gene, i] <- df$logFC
+  pval_matrix[df$Gene, i]  <- df$P.Value
+  padj_matrix[df$Gene, i]  <- df$adj.P.Val
+}
+
+mean_logFC <- rowMeans(logFC_matrix, na.rm = TRUE)
+mean_pval  <- rowMeans(pval_matrix, na.rm = TRUE)
+mean_padj  <- rowMeans(padj_matrix, na.rm = TRUE)
+
+logFC_matrix <- logFC_matrix[order(mean_logFC, decreasing = TRUE), ]
+pval_matrix  <- pval_matrix[order(mean_pval, decreasing = FALSE), ]
+padj_matrix  <- padj_matrix[order(mean_padj, decreasing = FALSE), ]
+
+
+
+
+# Datos de cancer de pulmon vs control
+old_df <- lapply(oldfiles, function(file) {
+  df <- read.delim(file, sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+  df <- df[!is.na(df$Gene.symbol) & df$Gene.symbol != "", ]
+  df$Gene.symbol <- sapply(df$Gene.symbol, function(x) strsplit(x, "///")[[1]][1])
+  df <- df[!grepl("\\.0000$", sprintf("%.4f", df$logFC)), ]
+  df <- df[order(df$P.Value), ]
+  df <- df[!duplicated(df$Gene.symbol), ]
+  return(df)
+})
+
+names(old_df) <- basename(oldfiles)
+str(old_df)
+head(old_df$data1.tsv)
+
+old_geneonly <- lapply(old_df, function(df) df$Gene.symbol)
+head(old_geneonly$data1.tsv)
+
+# Para logFC: ordenar en forma descendente
+old_gene_logFC <- lapply(old_df, function(df) {
+  df_subset <- df[, c("Gene.symbol", "logFC")]
+  df_subset <- df_subset[order(df_subset$logFC, decreasing = TRUE), ]
+  return(df_subset)
+})
+head(old_gene_logFC$data1.tsv)
+
+# Para P.Value: ordenar en forma ascendente
+old_gene_pval <- lapply(old_df, function(df) {
+  df_subset <- df[, c("Gene.symbol", "P.Value")]
+  df_subset <- df_subset[order(df_subset$P.Value, decreasing = FALSE), ]
+  return(df_subset)
+})
+head(old_gene_pval$data1.tsv)
+
+# Para adj.P.Val: ordenar en forma ascendente
+old_gene_padj <- lapply(old_df, function(df) {
+  df_subset <- df[, c("Gene.symbol", "adj.P.Val")]
+  df_subset <- df_subset[order(df_subset$adj.P.Val, decreasing = FALSE), ]
+  return(df_subset)
+})
+head(old_gene_padj$data1.tsv)
+```
+
+</details>
+
+# RankProd
+
+RankProd se basa en el método del producto de rangos (Rank Product), un enfoque no paramétrico diseñado para identificar genes consistentemente regulados a lo largo de múltiples experimentos o condiciones.
+
+Para cada gen, se calcula el producto de sus rangos en diferentes réplicas o experimentos. La idea es que si un gen está consistentemente entre los más regulados (por ejemplo, en las posiciones superiores), el producto de sus rangos será muy bajo.
+
+Se realizan permutaciones aleatorias de los datos para generar una distribución nula del producto de rangos. Luego se compara el valor observado con esta distribución para obtener un p-valor y, a partir de él, un p-valor ajustado. Esto permite evaluar la significancia de la consistencia en el ranking sin asumir una distribución subyacente específica.
+
+## Documentación disponible
+
+Dentro de los artículos científicos de entrada libre encontramos:
+
+-   Existe un [artículo original](https://febs.onlinelibrary.wiley.com/doi/full/10.1016/j.febslet.2004.07.055?sid=nlm%3Apubmed) de disponibilidad libre que explica en profundidad el método del producto de rangos.
+-   [Artículo principal](https://academic.oup.com/bioinformatics/article/22/22/2825/197503) de presentación del paquete RankProd y su funcionamiento.
+-   [Articulo complementario](https://pmc.ncbi.nlm.nih.gov/articles/PMC5860065/) sobre la actualizacion del paquete y los cambios aplicados.
+
+El paquete esta disponible en [Bioconductor](https://www.bioconductor.org/packages/release/bioc/html/RankProd.html) y dispone de un [tutorial](https://www.bioconductor.org/packages/release/bioc/vignettes/RankProd/inst/doc/RankProd.pdf) de uso básico en formato PDF y de un [manual](https://www.bioconductor.org/packages/release/bioc/manuals/RankProd/man/RankProd.pdf) más detallado para explicar el formato de uso de las funciones, los parámetros de entrada y las opciones avanzadas (actualizado el 18 de marzo de 2025).
+
+::: callout-note
+Generalmente parece que disponemos de muchas fuentes de información pero:
+
+-   Los artículos de la presentación de la herramienta son poco útiles y muy cortos
+-   Es necesario leer el artículo original para entender como funciona el método del producto de rangos
+-   La información disponible en Bioconductor es muy técnica y poco legible, siendo necesaria la autoexploración de las funciones
+:::
+
+## Funciones
+
+El paquete RankProd ofrece varias funciones, entre las cuales nos resultan útiles **RP** (ahora **RankProducts**) y **RP.advance**.
+
+**RP** es la función básica que realiza el análisis de producto de rangos para identificar genes expresados diferencialmente. Además, es posible marcar hasta un máximo de 2 diferentes clases para compararlas. Como última actualización se ha implementado una nueva función llamada **RankProducts** que es RP pero actualizada.
+
+*Importante*: utilizada para estudios de una sola fuente.
+
+```{markdown}
+RankProducts(data, cl, logged = TRUE, na.rm = TRUE, gene.names = NULL,
+plot = FALSE, rand = NULL, calculateProduct = TRUE, MinNumOfValidPairs = NA,
+RandomPairs = NA, huge = FALSE, fast = TRUE, tail.time = 0.05)
+```
+
+-   **`data`**: Matriz de expresión génica (genes en filas, estudios en columnas).
+
+    ```{r, echo=FALSE}
+    new_gene_logFC_df <- Reduce(function(x, y) merge(x, y, by = "Gene", all = TRUE), new_gene_logFC)
+    colnames(new_gene_logFC_df)[-1] <- names(new_gene_logFC)
+    rownames(new_gene_logFC_df) <- new_gene_logFC_df$Gene
+    new_gene_logFC_df <- new_gene_logFC_df[, -1]
+    ```
+
+    ```{r}
+    head(new_gene_logFC_df)
+    ```
+
+-   **`cl`**: Vector que define la clase de cada muestra.
+
+    -   Si hay **dos condiciones**, se usa `cl = c(0,0,0,1,1,1)`, donde `0` es control y `1` es tratamiento.
+
+    -   Si hay **una sola condición** (caso de ranking sin clases), se usa `cl = c(1,1,1,1)`. Este enfoque es adecuado cuando todos los datos corresponden a una única comparación, como "cáncer de pulmón contra control". Si se desea combinar múltiples comparaciones, por ejemplo, "cáncer de pulmón contra control" junto con "cáncer de próstata contra control", es necesario especificar la clase de cada archivo. No es posible incluir más de dos condiciones en un mismo análisis.
+
+```{r}
+cl <- rep(1, ncol(new_gene_logFC_df)) 
+cl
+```
+
+-   **`logged`**: Indica si los datos están en escala logarítmica.
+
+**RP.advance** funciona de la misma manera que RP pero esta versión avanzada permite combinar datos de diferentes estudios, es decir, diferente origen de procedimiento.
+
+```{markdown}
+RP.advance(data, cl, origin, logged = TRUE, na.rm = TRUE, gene.names = NULL,
+plot = FALSE, rand = NULL, calculateProduct = TRUE, MinNumOfValidPairs = NA,
+RandomPairs = NA, huge = FALSE, fast = TRUE, tail.time = 0.05)
+```
+
+Todos los argumentos son los mismos salvo:
+
+-   `origin`: Vector que define el origen de los datos, ya sea por diferencias en laboratorios, fechas o tecnologías. Se indica de manera similar a la clase (`cl`), asignando un número a cada lista, con la condición de que cada origen debe contar con al menos dos réplicas. Es decir, debe haber al menos dos listas por cada origen. Por ejemplo, si se tienen 7 estudios provenientes de 3 orígenes distintos, el vector se definiría como: **`origin = c(0,0,1,1,1,2,2)`**.
+
+## Estudio del output
+
+Tanto la función RankProducts como RP.advance devuelve una lista, en este caso llamada `reslts` con la siguiente estructura:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, }
+library(RankProd)
+result <- RankProducts(
+    new_gene_logFC_df,
+    cl = cl,
+    na.rm = TRUE,
+    logged = TRUE,
+    gene.names = rownames(new_gene_logFC_df),
+    plot = FALSE)
+```
+
+```{r}
+str(result)
+```
+
+Las columnas de interes son:
+
+-   `RPs`: estadístico de producto de rangos generados para cada gen
+-   `RPrank`: el orden definitivo establecido por RankProd para cada gen en orden ascendente
+-   `pfp`: Porcentaje estimado de predicciones falsas positivas (pfp), teniendo en cuenta tanto los genes regulados al alza como los regulados a la baja.
+-   `pval`: p valores estimados para cada gen regulado al alza y a la baja
+
+Un detalle importante a tener en cuenta es que, incluso cuando trabajamos con una sola clase en RankProd, el método internamente simula la existencia de dos canales (numerador y denominador). Esto permite aplicar su metodología sin necesidad de una comparación real entre dos condiciones. Como resultado, RankProd siempre genera dos columnas:
+
+`class1 < class2`: Ordena los genes según la tendencia de que su expresión en la clase 1 sea menor que en la clase 2, lo que podría interpretarse como subexpresión en la clase 1.
+
+`class1 > class2`: Ordena los genes según la tendencia de que su expresión en la clase 1 sea mayor que en la clase 2, lo que podría interpretarse como sobreexpresión en la clase 1.
+
+Aunque estas dos columnas reflejan direcciones opuestas de comparación, no son exactamente inversas entre sí. La relación entre ellas depende de cómo varía la expresión de cada gen en el dataset. Un gen podría obtener un ranking alto en una dirección y diferente en la otra, dependiendo de su patrón de expresión en los distintos estudios.
+
+## Ejemplo de uso
+
+Lanzaremos la función RankProducts para cada una de las varaibles: logFC, pval y p.adjust. El resultado final lo vamos a comparar con las tablas ordenadas
+
+::: panel-tabset
+### LogFC newdata
+
+```{r, warning=FALSE, message=FALSE}
+library(RankProd)
+library(DT)
+
+new_gene_logFC_df <- Reduce(function(x, y) merge(x, y, by = "Gene", all = TRUE), new_gene_logFC)
+colnames(new_gene_logFC_df)[-1] <- names(new_gene_logFC)
+rownames(new_gene_logFC_df) <- new_gene_logFC_df$Gene
+new_gene_logFC_df <- new_gene_logFC_df[, -1]
+cl <- rep(1, ncol(new_gene_logFC_df)) 
+
+result <- RankProducts(
+    new_gene_logFC_df,
+    cl = cl,
+    na.rm = TRUE,
+    logged = TRUE,
+    gene.names = rownames(new_gene_logFC_df),
+    plot = FALSE)
+
+Ranking <- result$RPrank[, "class1 > class2"]
+pval <- result$pval[, "class1 > class2"]
+
+Ranking <- sort(Ranking, decreasing = FALSE)
+pval <- pval[names(Ranking)]
+
+df_ranking <- data.frame(
+  Gene = names(Ranking),
+  Ranking = Ranking,
+  pval = pval,
+  row.names = NULL)
+
+df_ranking <- df_ranking[order(df_ranking$Ranking), ]
+datatable(df_ranking)
+
+datatable(logFC_matrix)
+
+
+```
+
+### P.adjust newdata
+
+```{r, warning=FALSE}
+new_gene_padj_df <- Reduce(function(x, y) merge(x, y, by = "Gene", all = TRUE), new_gene_padj)
+colnames(new_gene_padj_df)[-1] <- names(new_gene_padj)
+rownames(new_gene_padj_df) <- new_gene_padj_df$Gene
+new_gene_padj_df <- new_gene_padj_df[, -1]
+cl <- rep(1, ncol(new_gene_padj_df))  
+
+result <- RankProducts(
+    new_gene_padj_df,
+    cl = cl,
+    na.rm = TRUE,
+    logged = FALSE,
+    gene.names = rownames(new_gene_padj_df),
+    plot = FALSE)
+
+Ranking <- result$RPrank[, "class1 < class2"]
+pval <- result$pval[, "class1 < class2"]
+
+Ranking <- sort(Ranking, decreasing = FALSE)
+pval <- pval[names(Ranking)]
+
+df_ranking <- data.frame(
+  Gene = names(Ranking),
+  Ranking = Ranking,
+  pval = pval,
+  row.names = NULL)
+
+df_ranking <- df_ranking[order(df_ranking$Ranking), ]
+datatable(df_ranking)
+
+datatable(padj_matrix)
+
+```
+
+### Pvalue newdata
+
+```{r, warning=FALSE}
+new_gene_pval_df <- Reduce(function(x, y) merge(x, y, by = "Gene", all = TRUE), new_gene_pval)
+colnames(new_gene_pval_df)[-1] <- names(new_gene_pval)
+rownames(new_gene_pval_df) <- new_gene_pval_df$Gene
+new_gene_pval_df <- new_gene_pval_df[, -1]
+cl <- rep(1, ncol(new_gene_pval_df))
+
+result <- RankProducts(
+    new_gene_pval_df,
+    cl = cl,
+    na.rm = TRUE,
+    logged = FALSE,
+    gene.names = rownames(new_gene_pval_df),
+    plot = FALSE)
+
+Ranking <- result$RPrank[, "class1 < class2"]
+pval <- result$pval[, "class1 < class2"]
+
+Ranking <- sort(Ranking, decreasing = FALSE)
+pval <- pval[names(Ranking)]
+
+df_ranking <- data.frame(
+  Gene = names(Ranking),
+  Ranking = Ranking,
+  pval = pval,
+  row.names = NULL)
+
+df_ranking <- df_ranking[order(df_ranking$Ranking), ]
+datatable(df_ranking)
+
+datatable(pval_matrix)
+```
+:::
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# RankAggreg
+
+RankAggreg es un paquete de R diseñado para combinar de forma óptima múltiples listas ordenadas en un único "superranking". Su objetivo es sintetizar diversos rankings, por ejemplo, de genes, algoritmos de clustering u otros conjuntos de datos generando una lista final que minimiza, de manera ponderada, las discrepancias (medidas mediante distancias como Spearman o Kendall) entre la solución agregada y cada uno de los rankings originales. Para ello, RankAggreg implementa algoritmos estocásticos como el método de Cross-Entropy Monte Carlo y algoritmos genéticos, permitiendo incluso incorporar pesos adicionales que reflejen la importancia relativa de cada lista, lo cual resulta especialmente útil en aplicaciones de bioinformática y meta-análisis de datos heterogéneos.
+
+## Documentación disponible
+
+Dentro de los artículos científicos de entrada libre únicamente encontramos un [artículo original](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-10-62) de presentación y explicación del funcionamiento del paquete. Su contenido es completo y claro.
+
+El paquete esta disponible en [Bioconductor](https://cran.r-project.org/web/packages/RankAggreg/index.html) y dispone de un [manual](chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://cran.r-project.org/web/packages/RankAggreg/RankAggreg.pdf) detallado para explicar el formato de uso de las funciones, los parámetros de entrada y las opciones avanzadas.
+
+## El método
+
+Este paquete aplica dos algoritmos:
+
+**Cross-Entropy (CE):** algoritmo de búsqueda estocástico que optimiza la agregación de rangos mediante una iteración basada en muestreo y actualización de probabilidades. Inicialmente, se establece una distribución de probabilidad uniforme sobre las posibles posiciones de cada elemento, de la que se generan múltiples soluciones candidatas. Cada solución se evalúa con una función objetivo (por ejemplo, usando la distancia de Spearman o Kendall) que mide la similitud entre la lista propuesta y las listas originales. Luego, se seleccionan las mejores soluciones y se actualiza la distribución de probabilidad para favorecer la aparición de los elementos que contribuyen a minimizar la función objetivo. Este proceso iterativo continúa hasta que la solución óptima se estabiliza, logrando así un consenso entre las listas iniciales.
+
+**Algoritmo Genético (GA):** este simula el proceso evolutivo natural para explorar el espacio de soluciones mediante técnicas de selección, cruce y mutación. Se inicia generando una población aleatoria de listas ordenadas, que son evaluadas de acuerdo a una función objetivo similar a la del método CE. Las mejores soluciones (las de mayor "aptitud") se seleccionan y se combinan mediante operaciones de cruce, donde partes de dos listas se intercambian para formar nuevos individuos, mientras que la mutación introduce cambios aleatorios que ayudan a explorar nuevas posibilidades y a evitar óptimos locales. Con cada generación, la población evoluciona hacia soluciones con menor valor en la función objetivo, hasta alcanzar una convergencia en la que la lista óptima se mantiene estable durante varias iteraciones.
+
+## Funciones
+
+```{markdown}
+RankAggreg(x, k, weights=NULL, method=c("CE", "GA"), distance=c("Spearman", "Kendall"), seed=NULL, maxIter = 1000, convIn=ifelse(method=="CE", 7, 30), importance=rep(1,nrow(x)), rho=.1, weight=.25, N=10*k^2, v1=NULL, popSize=100, CP=.4, MP=.01, verbose=TRUE, standardizeWeights = TRUE, ...)
+```
+
+-   `x:` matriz que contiene las listas ordenadas a combinar donde cada fila representa una lista y cada columna corresponde a su posición en la lista.
+-   `k`: tamaño de la lista definitiva deseada (top-k)
+-   `weights`: matriz opcional de puntuaciones o pesos asociados a cada elemento de las listas. Tiene que coincidir en dimensiones con x y estar ordenado de acuerdo a la importancia de los elementos
+-   method: método utilizado para la agregación ("CE" o "GA")
+-   `distance`: métrica de distancia utilizada para evaluar la similitud entre la lista candidata y las listas originales ("Spearman" o "Kendall")
+-   `maxlter`: número máximo de iteraciones que se permitirán durante el proceso de optimización.
+
+```{markdown}
+BruteAggreg(x, k, weights = NULL, distance = c("Spearman", "Kendall"), importance=rep(1,nrow(x)), standardizeWeights = TRUE)
+```
+
+-   `x:` matriz que contiene las listas ordenadas a combinar donde cada fila representa una lista y cada columna corresponde a su posición en la lista.
+-   `k`: tamaño de la lista definitiva deseada (top-k)
+-   `weights`: matriz opcional de puntuaciones o pesos asociados a cada elemento de las listas. Tiene que coincidir en dimensiones con x y estar ordenado de acuerdo a la importancia de los elementos
+-   `distance`: métrica de distancia utilizada para evaluar la similitud entre la lista candidata y las listas originales ("Spearman" o "Kendall")
+
+## Ejemplos de uso
+
+::: panel-tabset
+### RankAggreg sin peso
+
+```{r}
+library(RankAggreg)
+
+top_k <- 30
+common_genes_top <- Reduce(intersect, lapply(new_geneonly, function(x) x[1:top_k]))
+
+gene_mapping <- data.frame(
+  Index = 1:length(common_genes_top),
+  Gene = common_genes_top,
+  stringsAsFactors = FALSE
+)
+
+filtered_rankings <- lapply(new_geneonly, function(x) {
+  intersect(x[1:top_k], common_genes_top)
+})
+
+rankings_matrix <- do.call(rbind, lapply(filtered_rankings, function(x) {
+  match(common_genes_top, x)
+}))
+
+result <- RankAggreg(rankings_matrix, k = length(common_genes_top), method = "CE")
+
+top500_aggregated <- result$top.list[1:30]
+
+aggregated_genes <- gene_mapping$Gene[match(top500_aggregated, gene_mapping$Index)]
+head(aggregated_genes)
+```
+
+### RankAggreg con peso
+
+```{r}
+library(RankAggreg)
+
+top_k <- 30
+top_genes_list <- lapply(new_gene_pval, function(df) df$Gene[1:top_k])
+common_genes_top <- Reduce(intersect, top_genes_list)
+
+gene_mapping <- data.frame(
+  Index = 1:length(common_genes_top),
+  Gene = common_genes_top,
+  stringsAsFactors = FALSE
+)
+
+rankings_matrix <- do.call(rbind, lapply(new_gene_pval, function(df) {
+  match(common_genes_top, df$Gene)
+}))
+
+weights_matrix <- do.call(rbind, lapply(new_gene_pval, function(df) {
+  df$P.Value[ match(common_genes_top, df$Gene) ]
+}))
+
+result <- RankAggreg(rankings_matrix, 
+                     k = length(common_genes_top), 
+                     weights = weights_matrix, 
+                     method = "CE")
+
+top30_aggregated <- result$top.list[1:30]
+
+aggregated_genes_peso <- gene_mapping$Gene[ match(top30_aggregated, gene_mapping$Index) ]
+head(aggregated_genes_peso)
+```
+
+### BruteAggreg sin peso
+
+```{r}
+library(RankAggreg)
+
+top_k <- 10
+common_genes_top <- Reduce(intersect, lapply(new_geneonly, function(x) x[1:top_k]))
+
+gene_mapping <- data.frame(
+  Index = 1:length(common_genes_top),
+  Gene = common_genes_top,
+  stringsAsFactors = FALSE
+)
+
+filtered_rankings <- lapply(new_geneonly, function(x) {
+  intersect(x[1:top_k], common_genes_top)
+})
+
+rankings_matrix <- do.call(rbind, lapply(filtered_rankings, function(x) {
+  match(common_genes_top, x)
+}))
+
+result_brute <- BruteAggreg(rankings_matrix, k = length(common_genes_top), distance = "Spearman")
+
+top_brute <- result_brute$top.list[1:10]
+
+aggregated_genes_brute <- gene_mapping$Gene[match(top_brute, gene_mapping$Index)]
+head(aggregated_genes_brute)
+```
+
+### BruteAggreg con peso
+
+```{r}
+library(RankAggreg)
+
+top_k <- 10
+top_genes_list <- lapply(new_gene_pval, function(df) df$Gene[1:top_k])
+common_genes_top <- Reduce(intersect, top_genes_list)
+
+gene_mapping <- data.frame(
+  Index = 1:length(common_genes_top),
+  Gene = common_genes_top,
+  stringsAsFactors = FALSE
+)
+
+rankings_matrix <- do.call(rbind, lapply(new_gene_pval, function(df) {
+  match(common_genes_top, df$Gene)
+}))
+
+weights_matrix <- do.call(rbind, lapply(new_gene_pval, function(df) {
+  df$P.Value[ match(common_genes_top, df$Gene) ]
+}))
+
+result_brute <- BruteAggreg(rankings_matrix, 
+                            k = length(common_genes_top), 
+                            weights = weights_matrix, 
+                            distance = "Spearman")
+
+top30_brute <- result_brute$top.list[1:10]
+
+aggregated_genes_brute_peso <- gene_mapping$Gene[ match(top30_brute, gene_mapping$Index) ]
+head(aggregated_genes_brute_peso)
+```
+:::
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# TopKLists
+
+El paquete **TopKLists** para R ofrece herramientas avanzadas para la inferencia estadística, agregación estocástica y visualización de múltiples listas ordenadas, completas o parciales, que representan un conjunto común de objetos. Internamente, el paquete se estructura en tres módulos principales:
+
+1.  **TopKInference**: Este módulo se centra en la estimación no paramétrica de la longitud óptima de las listas top-k informativas. Utiliza técnicas de inferencia basadas en desviaciones moderadas para identificar el punto en el que las listas clasificadas comienzan a degenerar en ruido, permitiendo determinar hasta qué posición las clasificaciones son estadísticamente significativas.
+
+2.  **TopKSpace**: Proporciona diversos métodos de agregación de listas ordenadas, permitiendo combinar múltiples listas en una única clasificación consensuada. Los principales métodos de agregación incluyen:
+
+    -   **Método de Borda**: Asigna puntuaciones a los objetos basadas en sus posiciones en cada lista y suma estas puntuaciones para obtener una clasificación agregada.
+    -   **Cadenas de Markov (MC)**: Modela las transiciones entre posiciones de objetos en las listas como un proceso de cadena de Markov, donde la probabilidad estacionaria determina el orden agregado.
+    -   **Cross Entropy Monte Carlo (CEMC)**: Utiliza técnicas de muestreo de Monte Carlo y entropía cruzada para explorar el espacio de posibles permutaciones y encontrar la clasificación que mejor se alinea con las listas de entrada.
+
+3.  **TopKGraphics**: Ofrece herramientas gráficas para la exploración y visualización de las listas de entrada y los resultados de agregación. Esto incluye mapas de agregación que muestran los objetos seleccionados con medidas de calidad, representaciones tipo Venn y listas resumen que facilitan la interpretación de los resultados.
+
+Esta combinación de módulos permite a los usuarios de **TopKLists** realizar análisis detallados y obtener clasificaciones consensuadas a partir de múltiples listas ordenadas, facilitando la integración y comparación de datos en diversos campos de investigación.
+
+## Documentación disponible
+
+Disponemos de un artículo original [aquí](https://www.degruyter.com/document/doi/10.1515/sagmb-2014-0093/html), además de 2 pdf en Bioconductor:
+
+-   [Manual](chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://cran.r-project.org/web/packages/TopKLists/TopKLists.pdf) de todos los componentes presentes en el paquete que incluye desde los datasets hasta la implementanción de las funciones, explicando su inputs y sus outputs.
+-   [Tutorial](chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://cran.r-project.org/web/packages/TopKLists/vignettes/TopKLists.pdf) con ejemplos de uso básicos de todas las funciones. Las explicaciones son completas y ayudan a solventar problemas
+
+::: callout-note
+Al principio lleva a confusión debido a que no presenta una función base del analisis, es decir, no hay una función llamada `TopKLists()` o algo parecido. El tutorial ayuda a entender todo el funcionamiento siendo fundamental su lectura y puesta en práctica
+:::
+
+## Funciones
+
+El paquete TopKLists está diseñado para la inferencia estadística, agregación y visualización de listas ordenadas top-k. Aunque no cuenta con una función única que centralice todas las operaciones, integra 3 funciones importantes que son las que generan las listas definitivas:
+
+-   `Borda()`: Implementa la agregación de rankings basada en el método de Borda, asignando puntos a los objetos según su posición en las listas y calculando una puntuación agregada
+-   `MC()` (Markov Chain): Utiliza cadenas de Markov para modelar la agregación de rankings, estimando las probabilidades estacionarias que reflejan la consistencia de los rankings
+-   `CEMC()` (Cross Entropy Monte Carlo): Emplea el método de Monte Carlo de entropía cruzada para aproximar la distribución de rankings más probable, combinando múltiples rankings en una lista consolidada.
+
+Pero para poder utilizarlas, además se disponen funciones auxiliares, algunas de ellas muy básicas, pero útiles para preparar los datos y visualizarlos:
+
+-   `calculate.maxK()`: Función principal del módulo TopKInference. Se utiliza para estimar el valor máximo de *k* (denotado como *j₀*) en listas ordenadas, indicando hasta qué posición los elementos son informativos antes de que la información se degrade en ruido. Esta función es esencial para determinar la longitud óptima de las listas top-k que deben considerarse en análisis posteriores. (TARDA MUCHO)
+
+-   `l2norm`: Calcula la norma L2, utilizada en algunos métodos de agregación.
+
+-   `geo.mean`: Calcula la media geométrica, útil en ciertos análisis estadísticos.
+
+-   `prepare.idata`: Prepara el vector Idata de 0's y 1's, necesario para algunos métodos de inferencia.
+
+-   `trans.matrix`: Calcula las matrices de transición utilizadas en el método de cadenas de Markov.
+
+-   **`Borda.plot()`**: Esta función genera un gráfico que muestra las puntuaciones de Borda en función de los rangos después de la agregación. Al representar las puntuaciones de Borda frente a sus posiciones en el ranking, es posible identificar visualmente el punto en el que la información comienza a degradarse en ruido, lo que ayuda a determinar cuántos elementos en la lista agregada son realmente informativos. ​
+
+    **`MC.plot()`**: Esta función produce un gráfico de las probabilidades estacionarias ordenadas frente a los rangos, proporcionando información útil sobre la importancia relativa de los elementos en la lista agregada mediante el método de cadenas de Markov. Al analizar este gráfico, se pueden identificar los elementos más destacados según las probabilidades estacionarias calculadas, facilitando la interpretación de los resultados de la agregación.
+
+## Ejemplo de uso
+
+```{r, warning=FALSE, message=FALSE , eval=doAll}
+library(data.table)
+library(TopKLists)
+library(DT)
+
+dt_wide <- data.table(rank = 1:length(old_geneonly[[1]]))
+for (nm in names(old_geneonly)) {
+  dt_wide[[nm]] <- old_geneonly[[nm]]
+}
+
+ranking_df <- head(as.data.frame(dt_wide[, -1, with = FALSE]), 15027)
+
+#### No retable debido al elevado tiempo de computación
+# L <- ncol(ranking_df)  
+# d <- 40                
+# v <- 10               
+# threshold <- 0.7
+# res_cut <- calculate.maxK(lists = ranking_df, L = L, d = d, v = v, threshold = threshold)
+# cutpoint <- res_cut$maxK
+# cat("Cutpoint estimado (maxK):", cutpoint, "\n")
+
+
+# Aplicar el método Borda
+resultado_borda <- Borda(input = ranking_df, k = 10000)
+head(resultado_borda$TopK)
+```
+
+Para que el algoritmo de Cadenas de Markov funcione correctamente, es necesario limitar la longitud de listas de entrada a 200 genes (óptimo a 100). Se generan 3 rankings diferentes:
+
+-   MC1 (Spam sensitive): Penaliza o da menor peso a elementos o listas que puedan considerarse "spam" o redundantes, lo que puede afectar la influencia de rankings atípicos.
+-   MC2 (Majority rule): Basa la agregación en la regla de la mayoría, dando más peso a aquellos elementos que aparecen consistentemente en posiciones altas en la mayoría de las listas.
+-   MC3 (Proportional): Utiliza un enfoque proporcional en el que la importancia de cada elemento se determina en función de la proporción relativa de sus posiciones en las diferentes listas.
+
+```{r, warning=FALSE, message=FALSE , eval=doAll}
+# Aplicar los algoritmos de Cadenas de Márkov (MC)
+ranking_df <- head(as.data.frame(dt_wide[, -1, with = FALSE]), 200)
+resultado_mc <- MC(input = ranking_df, k = 50)
+head(resultado_mc$MC1.TopK)
+head(resultado_mc$MC2.TopK)
+head(resultado_mc$MC3.TopK)
+```
+
+Por último, el algoritmo CEMC hay que limitar mucho la lista de entrada (a 50 genes cada lista), generando una lista consensuada:
+
+```{r, warning=FALSE, message=FALSE , eval=doAll}
+# Aplicar el algoritmo CEMC
+ranking_df <- head(as.data.frame(dt_wide[, -1, with = FALSE]), 50)
+resultado_cemc <- CEMC(input = ranking_df, k = 10)
+```
+
+Además, disponemos de funciones de visualización para el método Borda y MC para poder detectar el punto en el que las listas dejan de ser informativas:
+
+```{r, warning=FALSE, message=FALSE , eval=doAll}
+# Visualizar los resultados
+Borda.plot(resultado_borda)
+MC.plot(resultado_mc)
+```
+
+## Resumen
+
+Puntos positivos:
+
+-   Muy fácil de usar y de implementar el código.
+-   Rápido funcionamiento con Borda
+-   Útil para listas cortas
+
+Puntos negativos:
+
+-   Muchas funciones innecesarias que lian al usuario o que entorpecen y realentizan el proceso.
+-   Elevado tiempo de espera para MC y CEMC
+-   Trabaja únicamente con rangos sin ningún posible peso
+
+**Conclusión**: Sería interesante darle la opción al usuario de utilizar implementar este paquete únicamente con el modelo Borda en el caso de que el usuario sólo disponga de listas de genes sin ningún peso. También, en caso de tener listas de pequeño tamaño, se podrían implementar el resto de los métodos.
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# RobustRankAggreg
+
+El paquete **RobustRankAggreg** está diseñado para la agregación de listas ordenadas, siendo especialmente útil en el ámbito de la bioinformática para integrar listas de genes obtenidas de distintos experimentos o análisis. Su principal función es combinar de manera robusta diferentes rankings utilizando modelos probabilísticos, lo que permite asignar a cada elemento una puntuación de significancia que refleja lo superior de su posición respecto a lo esperado por azar. Entre sus ventajas se destacan:
+
+-   Funciona muy bien ante el ruido
+-   Capacidad para manejar rankings incompletos o de diferentes dimensiones
+-   Cálculo de valores de significancia (p-valores) que facilitan la interpretación estadística
+-   Eficiencia computacional al ser muy rápido y permitiendo la integración de grandes conjuntos de datos
+-   Documentación completa y fácil de entender mediante un [artículo oficial](https://cran.r-project.org/web/packages/RobustRankAggreg/index.html) que presenta el paquete y el método utilizado y un [manual](chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://cran.r-project.org/web/packages/RobustRankAggreg/RobustRankAggreg.pdf) que explica el funcionamiento de las funciones.
+-   Además del método principal utilizado (RRA o Robust Rank Aggregation), es posible aplicar métodos más básicos como la media, mediana, media geométrica, mínimos o stuard.
+
+## Método utilizado
+
+El método central implementado en este paquete es el **Robust Rank Aggregation (RRA)**, el cual se fundamenta en el uso de estadísticas de orden para comparar las posiciones observadas en las listas con la distribución esperada bajo la hipótesis nula de un orden aleatorio. Es decir, para cada elemento se calcula la probabilidad de que aparezca en posiciones tan altas o más altas en múltiples rankings si los datos fueran simplemente el resultado de una asignación aleatoria. Esto se realiza mediante la transformación de los rangos en valores normalizados y el cálculo de puntuaciones beta para cada estadístico de orden, de donde se extrae el mínimo (ρ score) que se corrige, por ejemplo, mediante el método de Bonferroni. De esta forma, el algoritmo resulta robusto ante errores, valores atípicos y diferencias en la cobertura de los conjuntos de datos, permitiendo así extraer aquellos elementos que consistentemente se posicionan mejor de lo esperado por azar.
+
+## Funciones
+
+El paquete incorpora varias funciones clave:
+
+**`aggregateRanks():`** Función principal para la agregación de listas.
+
+```{markdown}
+aggregateRanks( glist, rmat = rankMatrix(glist, N, full = full), N = NA, method = "RRA", full = FALSE, exact = FALSE, topCutoff = NA )
+```
+
+-   `glist`: una lista de vectores (cada vector representa un ranking)
+-   `rmat`: matriz de rangos generada con la función `rankMatrix` (por defecto, la función trabaja con este formato, transformando `glist` en la matriz)
+-   `N`: el número total de elementos del ranking, siendo importante su uso si se pretende calcular únicamente un ranking top-K. Por defecto utiliza el número de elementos únicos de la matriz
+-   `method`: por defecto el método utilizado es el rank aggregation method ("*RRA*"), aunque también se puede utilizar el "*min*", "*geom.mean*", "*mean*", "*median*" y "*stuart*"
+-   `full`: una marca que permite indicar si se utilizan rankings completos o el número de elementos no se empareja a la perfección
+-   `topCutoff`: limita el número de elementos en cada lista de entrada, es decir, define el “corte” para considerar solo los elementos top-K de cada ranking.
+
+```{r, warning=FALSE, message=FALSE}
+library(RobustRankAggreg)
+str(new_geneonly)
+
+head(new_geneonly$diffexp_Severe_Subacute_vs_Control.txt)
+```
+
+***Importante***: todos los métodos asumen que el número de elementos de las listas es conocido, siendo importante el control del argumento N ya que los p-values generados por el método RRA son más fiables cuando el argumento N se acerca al valor real de elementos. topCutoff utiliza un vector donde cada elemento es una lista. El programa funciona mejor con los valores por defecto.
+
+<br>
+
+**`rankMatrix():`** Convierte una lista de listas de rankings en una matriz en la que cada fila corresponde a un elemento único y cada columna a una lista, asignando valores de rango y manejando valores faltantes según corresponda.
+
+```{markdown}
+rankMatrix(glist, N = NA, full = FALSE)
+```
+
+-   `glist`: una lista de vectores (cada vector representa un ranking)
+-   `N`: número de todos los elementos rankeables (el universo de genes en este caso)
+-   `full`: etiqueta para saber si los genes estan completos o son parciales
+
+```{r, warning=FALSE, message=FALSE}
+datatable(RobustRankAggreg::rankMatrix(new_geneonly))
+```
+
+<br>
+
+## Ejemplo de uso
+
+***Recomendación***: no manipular el resto de las varaibles, únicamente tocar el input principal, es decir, las listas o la matriz (siendo recomendando introducir las listas) y como mucho el argumento N (el número de genes que conforman el universo de genes):
+
+```{r, warning=FALSE, message=FALSE}
+library(RobustRankAggreg)
+result_new <- RobustRankAggreg::aggregateRanks(new_geneonly, N = NA, method = "RRA", full = TRUE, exact = FALSE, topCutoff = NA)
+rownames(result_new) <- seq(1, nrow(result_new))
+datatable(result_new)
+
+result_old <- RobustRankAggreg::aggregateRanks(old_geneonly, N = NA, method = "RRA", full = FALSE, exact = FALSE, topCutoff = NA)
+rownames(result_old) <- seq(1, nrow(result_old))
+datatable(result_old)
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# RankAggregator
+
+El paquete **RankAggregator** está diseñado para calcular un ranking de consenso (también denominado ranking mediano) a partir de un conjunto de rankings de entrada, que pueden ser completos o parciales. Este ranking de consenso es el que minimiza el número total de violaciones o desacuerdos entre la solución propuesta y cada uno de los rankings proporcionados. Así, se obtiene una agregación que refleja, en la medida de lo posible, la “opinión común” de las diferentes fuentes o criterios.
+
+## El método
+
+El enfoque adoptado se basa en la aproximación axiomatizada presentada por Cook et al. (2007). Para alcanzar la solución óptima, el paquete combina dos técnicas complementarias:
+
+-   `Branch and Bound`**:** este algoritmo explora de manera sistemática el espacio de soluciones (posibles rankings de consenso). Su modo operandi es dividir el problema en subproblemas fijando posiciones, calculando una cota inferior de número de errores permitidos y excluyendo los subproblemas que superen esa cota, reduciendo así el espacio de búsqueda.
+
+-   `Algoritmo Heurístico`**:** que acelera el proceso de búsqueda en instancias de mayor tamaño, permitiendo obtener soluciones “buenas” en menos tiempo cuando la exploración completa resulta computacionalmente costosa
+
+## Funciones
+
+El paquete consta de 2 funciones principales y 4 funciones auxiliares que son utilizadas por las principales:
+
+`consensusRanking` es el núcleo del paquete que a partir de una matriz con una estructura específica (contiene columnas "Item", "Reviewer" y "Ranking") donde reviewer es la lista, el item los genes y el ranking, el orden que tienen los genes en cada lista. La función no tiene más argumentos y es ideal para escenarios en los que se requiere una agregación exacta, ya que se basa en un método de búsqueda completa optimizado mediante acotamientos. Como ejemplo de entrada tenemos:
+
+```{r, message=FALSE, warning=FALSE}
+num_genes <- 5
+new_geneonly_cut <- lapply(new_geneonly, function(x) x[1:num_genes])
+
+df_list <- lapply(names(new_geneonly_cut), function(rev) {
+  ranking <- new_geneonly_cut[[rev]]
+  data.frame(Item = ranking,
+             Reviewer = rev,
+             Ranking = seq_along(ranking),
+             stringsAsFactors = FALSE)
+})
+df <- do.call(rbind, df_list)
+datatable(df)
+```
+
+<br>
+
+`consensusRankingBoot` funciona de la misma manera que la función principal pero es útil cuando los rankings originales son incompletos o cuando se desea una estimación de la incertidumbre asociada al consenso obtenido.
+
+```{makrdown}
+consensusRankingBoot(x, 
+                     bootstrap, 
+                     nboot = 10000, 
+                     conf.int = 0.95, 
+                     prog.upd = TRUE )
+```
+
+-   `bootstrap = TRUE` para activar el procedimiento de remuestreo.
+-   `nboot = 10000` para realizar 10,000 replicaciones.
+-   `conf.int = 0.95` para establecer un intervalo de confianza del 95%.
+-   `prog.upd = TRUE` para que se muestren actualizaciones de progreso durante el bootstrap.
+
+En el siguiente apartado se presenta un ejemplo de uso completo para ver la diferencia
+
+## Ejemplo de uso
+
+```{r, message=FALSE, warning=FALSE}
+library(RankAggregator)
+# Definir el número de genes a considerar
+num_genes <- 27
+new_geneonly_cut <- lapply(new_geneonly, function(x) x[1:num_genes])
+
+df_list <- lapply(names(new_geneonly_cut), function(rev) {
+  ranking <- new_geneonly_cut[[rev]]
+  data.frame(Item = ranking,
+             Reviewer = rev,
+             Ranking = seq_along(ranking),
+             stringsAsFactors = FALSE)
+})
+df <- do.call(rbind, df_list)
+
+library(RankAggregator)
+rank <- (consensusRanking(df))
+head(rank[order(rank$Rank, decreasing = FALSE), ])
+```
+
+::: callout-warning
+Para 3 listas, con 26 genes funciona con un 0.3 segundos de respuesta. En cambio, con 27 el sistema se sobrecarga y no termina nunca. Con 4 listas, soporta un máximo de 11 genes por lista.
+
+Es dificil saber cual sería el límite, por ende, es complicado incluir esta función.
+:::
+
+```{=html}
+<details>
+<summary>Haz click para mostrar el código</summary>
+```
+```{r, message=FALSE, warning=FALSE}
+num_genes <- 5
+new_geneonly_cut <- lapply(new_geneonly, function(x) x[1:num_genes])
+
+df_list <- lapply(names(new_geneonly_cut), function(rev) {
+  ranking <- new_geneonly_cut[[rev]]
+  data.frame(Item = ranking,
+             Reviewer = rev,
+             Ranking = seq_along(ranking),
+             stringsAsFactors = FALSE)
+})
+df <- do.call(rbind, df_list)
+rank_boot <- consensusRankingBoot(x = df, 
+                                  bootstrap = TRUE, 
+                                  nboot = 10000, 
+                                  conf.int = 0.95, 
+                                  prog.upd = TRUE)
+head(rank_boot)
+```
+
+</details>
+
+::: callout-warning
+En general, incluso con 5 genes por lista resulta muy costoso computacionalmente y tarde mucho. Es muy últil ya que oferece una visión relativa del orden, pero con 30 genes en total el tiempo de ejecución fue de 1 minuto y 40 segundos.
+:::
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Metap
+
+El paquete metap está diseñado para realizar meta-análisis de p-valores, es decir, para combinar valores de p obtenidos de diferentes estudios o pruebas estadísticas en un único valor global. Esto resulta especialmente útil cuando se dispone de resultados de múltiples experimentos o estudios y se desea sintetizar la evidencia estadística para evaluar la significancia global de un efecto. La idea central es transformar y combinar los p-valores de manera que se obtenga una medida de la evidencia combinada, facilitando la toma de decisiones basada en la totalidad de los datos disponibles.
+
+## El método
+
+Para combinar los p-valores, metap incorpora una variedad de métodos que se basan en principios estadísticos que transforman los p-valores individuales de manera que su combinación reflje la evidencia acumulada de forma adecuada, Entre todos estos métodos encontramos:
+
+-   `Fisher’s method (sumlog):` Este método combina los p-valores mediante la suma de los logaritmos naturales de cada p-valor. Bajo la hipótesis nula, la estadística resultante sigue una distribución chi-cuadrado. Es particularmente sensible a p-valores muy pequeños.
+-   `Stouffer’s method (sumz):` Este método transforma cada p-valor en su correspondiente estadístico z y luego suma estos z-scores. Permite incorporar pesos, lo cual es útil si se desea dar mayor importancia a algunos estudios.
+-   `Mean p-value method (meanp) y Mean z-score method (meanz):` Estos métodos calculan la media aritmética de los p-valores o de los z-scores, respectivamente, proporcionando una medida central que resume la evidencia.
+-   `Logit method (logitp):` Utiliza la transformación logit para combinar los p-valores, una alternativa que puede ser útil en ciertos contextos.
+-   `Inverse chi-squared method (invchisq):` Combina los p-valores utilizando la distribución inversa chi-cuadrado, similar en espíritu al método de Fisher pero con algunas variaciones en la interpretación.
+-   `Otros métodos:` El paquete también incluye funciones para métodos basados en vote counting (`votep`), métodos de Wilkinson (`maximump`, `minimump`) y técnicas basadas en el producto truncado (`truncated`). Además, la función `allmetap` permite aplicar varios de estos métodos simultáneamente, facilitando la comparación entre ellos.
+
+## Funciones
+
+Se trata de un paquete muy completo y con múltiples funciones y datasets de ejemplo. Entre las funciones más importantes encontramos:
+
+-   `sumlog():` Implementa el método de Fisher para combinar p-valores. Su salida incluye el p-valor combinado y, habitualmente, la estadística chi-cuadrado utilizada.
+-   `sumz():` Aplica el método de Stouffer para combinar los p-valores, permitiendo, opcionalmente, ponderar cada p-valor.
+-   `meanp() y meanz()`**:** Calculan, respectivamente, la media de los p-valores y la media de los z-scores derivados de los p-valores.
+-   `logitp():` Combina los p-valores utilizando la transformación logit, ofreciendo una alternativa a los métodos clásicos.
+-   `invchisq():` Combina los p-valores basado en la inversa de la distribución chi-cuadrado.
+-   `votep()`**:** Utiliza el método de votación (vote counting) para sintetizar la evidencia, una técnica menos común pero que puede resultar útil en ciertos contextos.
+-   `allmetap():` Función que ejecuta varios de los métodos anteriores simultáneamente, permitiendo obtener una visión comparativa de los resultados de meta-análisis.
+-   Funciones auxiliares como `print.sumlog()`, `print.sumz()`, etc., que formatean la salida, y funciones como `plotp()` y `schweder()` que permiten visualizar los p-valores y evaluar su distribución (por ejemplo, mediante Q-Q plots).
+
+## Ejemplo de uso
+
+Como input vamos a utilizar simplemente todos los ficheros que contengan Gene y P.V.Adj y los vamos a unificar hasta llegar a tener una matriz con todos los p-valores:
+
+```{r, warning=FALSE, message=FALSE}
+df_merged <- Reduce(function(x, y) merge(x, y, by = "Gene"), new_gene_padj)
+
+colnames(df_merged) <- c("Gene", "Subacute", "Late_chronic", "Early_chronic")
+head(df_merged)
+
+pvals <- as.matrix(df_merged[, -1])
+pvals <- apply(pvals, 2, as.numeric)
+
+
+library(metap)
+# a) Fisher's method (sumlog)
+fisher_comb <- apply(pvals, 1, function(p) sumlog(p)$p)
+# b) Stouffer's method (sumz)
+stouffer_comb <- apply(pvals, 1, function(p) sumz(p)$p)
+# c) Mean p method (meanp)
+# SOLO FUNCIONA CON 4 VALORES DE PVALUE VÁLIDOS
+meanp_comb <- apply(pvals, 1, function(p) meanp(p)$p)
+# d) Logit method (logitp)
+logit_comb <- apply(pvals, 1, function(p) logitp(p)$p)
+
+#Como output las funciones devuelven una lista de p-valores en el mismo orden en el que se 
+
+combined_results <- data.frame(
+  Gene = df_merged$Gene,
+  Fisher_p = fisher_comb,
+  Stouffer_p = stouffer_comb,
+  MeanP = meanp_comb,
+  Logit_p = logit_comb,
+  stringsAsFactors = FALSE
+)
+
+head(combined_results)
+```
+
+## Ejemplo de uso
+
+::: panel-tabset
+### Fisher's method
+
+```{r, warning=FALSE, message=FALSE}
+combined_results_fisher <- combined_results[order(combined_results$Fisher_p), ]
+
+# Mostrar la tabla ordenada
+head(combined_results_fisher)
+```
+
+### Stouffer's method
+
+```{r, warning=FALSE, message=FALSE}
+# Ordenar los resultados por el p-valor de Stouffer en orden ascendente
+combined_results_stouffer <- combined_results[order(combined_results$Stouffer_p), ]
+
+# Mostrar la tabla ordenada
+head(combined_results_stouffer)
+
+```
+
+### Método de la media de p-valores
+
+```{r, warning=FALSE, message=FALSE}
+combined_results_meanp <- combined_results[order(combined_results$MeanP), ]
+
+# Mostrar la tabla ordenada
+head(combined_results_meanp)
+```
+
+### Método Logit
+
+```{r, warning=FALSE, message=FALSE}
+# Ordenar los resultados por el p-valor de Logit en orden ascendente
+combined_results_logit <- combined_results[order(combined_results$Logit_p), ]
+
+# Mostrar la tabla ordenada
+head(combined_results_logit)
+```
+:::
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# staRank
+
+​El paquete staRank de Bioconductor está diseñado para mejorar la identificación de variables relevantes en conjuntos de datos, especialmente en situaciones donde el número de muestras es limitado o los datos son ruidosos. Utiliza técnicas de remuestreo o subsampling para evaluar la estabilidad de las variables, proporcionando rankings más robustos y confiables.
+
+Únicamente contiene una función llamada `aggregRank` que permite combinar múltiples rankings en un único ranking agregado. Esta función aplica una estadística resumen especificada (como la media o la mediana) a una matriz de rankings, donde cada columna representa un ranking individual y las filas corresponden a los elementos evaluados.
+
+La función `aggregRank` emplea métodos estadísticos sencillos para combinar los rankings individuales. Dependiendo del parámetro method especificado, puede calcular la media, mediana, máximo o mínimo de las posiciones de cada elemento a lo largo de los diferentes rankings. Este enfoque asume que las posiciones en los rankings reflejan la importancia o relevancia de los elementos, y al aplicar una estadística resumen, se obtiene una medida consolidada de dicha importancia.
+
+El formato que debe seguir es una matriz donde cada columna representa un ranking individual y cada fila corresponde a un elemento (por ejemplo, un gen) rankeado. A continuación, te presento un ejemplo de uso de la función:
+
+```{r, warning=FALSE, message=FALSE}
+library(staRank)
+all_genes <- unique(unlist(old_geneonly))
+
+rank_matrix <- matrix(NA, nrow = length(all_genes), ncol = length(old_geneonly),
+                      dimnames = list(all_genes, names(old_geneonly)))
+
+for (i in seq_along(old_geneonly)) {
+    current_list <- old_geneonly[[i]]
+    rank_matrix[current_list, i] <- seq_along(current_list)
+}
+
+rank_matrix[is.na(rank_matrix)] <- max(rank_matrix, na.rm = TRUE) + 1
+head(rank_matrix)
+
+aggregated_ranking <- aggregRank(rank_matrix, method = "mean")
+
+head(aggregated_ranking)
+```
