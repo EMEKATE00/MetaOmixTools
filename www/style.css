@@ -1,0 +1,54 @@
+/* metarank_style.css */
+
+/* todas las reglas sólo dentro del módulo */
+#metarank1-metarank_sidebar {
+  /* estilos de fondo, tipografía, etc */
+  font-family: 'Poppins', sans-serif;
+  background-color: #f8f9fa;
+  color: #333;
+}
+
+/* sidebar sólo dentro del módulo */
+#metarank1-metarank_sidebar .sidebar {
+  padding: 0px;
+}
+#metarank1-metarank_sidebar .sidebar .shiny-input-container {
+  margin-bottom: 0px;
+}
+
+/* títulos sólo en este módulo */
+#metarank1-metarank_sidebar h4,
+#metarank1-metarank_sidebar h3 {
+  margin: 0px 0;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 600;
+}
+
+/* custom-btn de este módulo */
+#metarank1-metarank_sidebar .custom-btn {
+  background-color: transparent !important;
+  border: none !important;                   /* Elimina el borde */
+  padding: 0 !important;                     /* Ajusta el espaciado */
+  color: #007bff;                            /* Color del icono */
+  font-size: 24px;
+}
+
+/* iconos de ayuda namespaced */
+#metarank1-showExample,
+#metarank1-showOriginInfo,
+#metarank1-showExampleRRA {
+  background-color: transparent !important;
+  border: none !important;
+  color: #007bff;
+  font-size: 24px;
+  position: relative;
+  left: -43px; 
+}
+/* hover… */
+#metarank1-showExample:hover,
+#metarank1-showOriginInfo:hover,
+#metarank1-showExampleRRA:hover {
+  color: #0056b3;
+  cursor: pointer;
+}
+
