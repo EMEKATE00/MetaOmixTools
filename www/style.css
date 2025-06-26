@@ -1,7 +1,7 @@
 /* metarank_style.css */
 
 /* todas las reglas sólo dentro del módulo */
-#metarank1-metarank_sidebar {
+#mega1-metaenrichgo_sidebar {
   /* estilos de fondo, tipografía, etc */
   font-family: 'Poppins', sans-serif;
   background-color: #f8f9fa;
@@ -9,23 +9,23 @@
 }
 
 /* sidebar sólo dentro del módulo */
-#metarank1-metarank_sidebar .sidebar {
+#mega1-metaenrichgo_sidebar .sidebar {
   padding: 0px;
 }
-#metarank1-metarank_sidebar .sidebar .shiny-input-container {
+#mega1-metaenrichgo_sidebar .sidebar .shiny-input-container {
   margin-bottom: 0px;
 }
 
 /* títulos sólo en este módulo */
-#metarank1-metarank_sidebar h4,
-#metarank1-metarank_sidebar h3 {
+#mega1-metaenrichgo_sidebar h4,
+#mega1-metaenrichgo_sidebar h3 {
   margin: 0px 0;
   font-family: 'Poppins', sans-serif;
   font-weight: 600;
 }
 
 /* custom-btn de este módulo */
-#metarank1-metarank_sidebar .custom-btn {
+#mega1-metaenrichgo_sidebar .custom-btn {
   background-color: transparent !important;
   border: none !important;                   /* Elimina el borde */
   padding: 0 !important;                     /* Ajusta el espaciado */
@@ -34,20 +34,16 @@
 }
 
 /* iconos de ayuda namespaced */
-#metarank1-showExample,
-#metarank1-showOriginInfo,
-#metarank1-showExampleRRA {
+#mega1-showExample {
   background-color: transparent !important;
   border: none !important;
   color: #007bff;
   font-size: 24px;
   position: relative;
-  left: -43px; 
+  left: -35px; 
 }
 /* hover… */
-#metarank1-showExample:hover,
-#metarank1-showOriginInfo:hover,
-#metarank1-showExampleRRA:hover {
+#mega1-showExample:hover{
   color: #0056b3;
   cursor: pointer;
 }
