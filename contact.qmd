@@ -1,0 +1,73 @@
+---
+title: "Contact Us"
+format:
+  html:
+    toc: false
+    number-sections: false
+    theme: cosmo
+    self-contained: true
+---
+
+```{=html}
+<style>
+body {
+  text-align: justify;
+  font-size: 0.95em;
+}
+
+h1.title {
+  text-align: center;
+  font-weight: bold;
+  color: #343a40;
+  margin-bottom: 1.5em;
+}
+
+.contact-section {
+  margin-bottom: 2em;
+}
+
+.contact-label {
+  font-weight: bold;
+  color: #5e1b8f;
+}
+</style>
+```
+
+
+## Get in Touch
+
+If you have any questions, suggestions, or require technical support related to MetaOmixTools, feel free to contact us.
+
+We are committed to continuous improvement and fostering collaboration within the bioinformatics and data analysis communities.
+
+## Contact Email
+
+**Email:**
+
+*metaomixtools-support@cipf.es*
+
+Please include a clear subject line in your email. When relevant, attach input files, screenshots, or session information to help us provide more efficient support.
+
+## Research Affiliation
+
+**Institution:**
+
+Bioinformatics and Biostatistics Unit
+Prince Felipe Research Center (CIPF)
+Valencia, Spain
+
+**Established:**
+2025
+
+Our research group focuses on integrative omics analysis, reproducible workflows, and the development of computational methods for meta-analysis and gene prioritization.
+
+## Further Information
+
+To learn more about MetaOmixTools suite, please refer to the official documentation portal or follow our scientific publications and institutional announcements.
+
+## Mission Statement
+
+MetaOmixTools is developed with the goal of providing robust, transparent, and accessible computational tools for the integrative analysis of omics data.  
+Our suite enables consensus-based gene ranking, functional enrichment meta-analysis, and reproducible workflows across heterogeneous datasets.  
+
+By supporting both hypothesis-driven and data-driven approaches, MetaOmixTools aims to empower researchers in extracting biologically meaningful insights from multi-source experiments.

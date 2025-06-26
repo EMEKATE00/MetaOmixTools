@@ -1,0 +1,313 @@
+---
+title: "MetaEnrichGO Practical Example"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+    self-contained: false
+---
+
+```{=html}
+<style>
+body {
+  text-align: justify;
+  font-size: 0.95em;
+}
+</style>
+```
+
+------------------------------------------------------------------------
+
+This document provides guided, step-by-step examples illustrating how to use *MetaEnrichGO* for functional enrichment analysis across multiple gene lists. It aims to demonstrate both basic and advanced functionalities of the tool through practical workflows. The structure of the document is as follows:
+
+1.  **Overview**
+2.  **Basic Example**: KEGG Enrichment with Pasted Data
+    -   Input
+    -   Parameters
+    -   Data Visualization
+    -   Outputs
+3.  **Advanced Example**: GO Biological Process Enrichment with Filtered Example Data
+    -   Input
+    -   Parameters
+    -   Data Visualization
+    -   Outputs
+
+<br>
+
+## Overview
+
+Two example use cases are presented:
+
+1.  **Basic Example** — Performs enrichment against KEGG pathways using a custom set of human gene lists pasted directly into the tool. This example highlights the core functionality of *MetaEnrichGO* and the steps required for a quick analysis and download of key results.
+
+2.  **Advanced Example** — Focuses on enrichment using the GO Biological Process ontology, employing example gene lists with stricter filtering criteria. It showcases table-to-plot interactivity, filtered result exploration, and extended visualization features.
+
+Each example includes detailed parameter choices, explanations of their relevance, and instructions for interpreting and exporting the results.
+
+## Basic Example: KEGG Enrichment with Pasted Data
+
+**Objective:** Identify the top 20 KEGG terms pathways enriched in a customised set of human genes introduced through the pasting option.
+
+### Input
+
+-   **Check ℹ️ Format:** The information icon and the placeholder of text input reveals the required `###`-delimited structure. Verify the example closely to match one gene per line with no headers.
+
+-   **Mode selection:** Choose `Paste Genes` from the input method menu.
+
+-   **Pasting data:** Insert a single column of text containing seven `###` separators, which yields eight individual lists of varying sizes (from \~200 to \~1000 genes each). Duplicate entries and missing values are automatically removed; if multiple genes appear on one line (e.g. `BRCA1///BRCA2`), only the first is retained.
+
+::: callout-note
+Although the full pasted content may not be fully visible within the text box, it is received and processed in its entirety by the application.
+:::
+
+### Parameters
+
+The analysis options selected to achieve the objective are as follows:
+
+| Parameter                  | Setting            | Rationale                                                                                                    |
+|-------------------|-------------------|----------------------------------|
+| Database                   | KEGG               | Focuses on well–curated metabolic and signaling pathway maps, ideal for translating gene sets into pathways. |
+| Organism                   | Homo sapiens (Hsa) | Ensures correct mapping of human HGNC symbols (e.g., `TP53`).                                                |
+| Gene ID type               | SYMBOL             | Matches the pasted gene identifiers, preserving original nomenclature without conversion.                    |
+| Meta-analysis method       | Stouffer           | Weights each list equally by converting p-values to Z-scores, suitable for small, uniformly sized lists.     |
+| Minimum number of datasets | 1                  | Placed last to emphasize filtering; includes any pathway found in at least one list, maximizing coverage.    |
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Table 1: Configuration of the parameters tab for the basic example of use
+</p>
+
+### Data Visualization
+
+Once the parameters have been configured, attention turns to the output visualization section (`Data Visualizaction)`, where both the resulting table and plot can be fully customized.
+
+|                         |                                |                                                                                                  |
+|-------------------|-------------------|----------------------------------|
+| Setting                 | Configuration                  | Details                                                                                          |
+| Columns                 | ID, Description only         | All other columns deselected so that table output focuses on pathway identifiers and names.      |
+| Number of terms to show | 20                             | Displays the top 20 enriched pathways in the plot.                                               |
+| Y-axis label            | ID                           | Shows the KEGG pathway IDs on the vertical axis for clarity.                                     |
+| Plot type               | Dot Plot                       | Chosen for compact representation of significance and counts.                                    |
+| Color Scale             | Low: light blueHigh: dark blue | Gradient mapped to adjusted p-value; defines low (less significant) and high (most significant). |
+| Text size               | 10 pt                          | Balances readability with plot aesthetics when displaying 20 entries.                            |
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Table 2: Configuration of the data visualization tab for the basic example of use
+</p>
+
+<br>
+
+Once customization is complete, pressing the **Run Analysis** button initiates the *Over-Representation Analysis (ORA)*, applies the selected meta-analysis method, constructs the final results structure, and renders both the interactive table and the corresponding plot in the `Data Visualization` tab.
+
+::: callout-tip
+Table and plot customizations can also be performed after analysis completion; any changes to columns, filters, or visual settings will be applied immediately without re-running the analysis.
+:::
+
+### Outputs
+
+#### Enrichment Table (Interactive DataTable that shows the final result of our analysis)
+
+-   Displays only `ID` and `Description`.
+
+-   Downloaded as `TSV` via the export button.
+
+-   The downloaded results are represented again in the form of an interactive table to simulate the results obtained in the web tool.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(DT)
+
+# Cargar los datos
+example_data <- "www/MetaEnrichGO_results_2025-05-04.tsv"
+data <- read.delim(example_data, sep = "\t", header = TRUE,  colClasses = "character")
+
+# Calcular la altura de la tabla en función de las filas
+table_h <- ifelse(nrow(data) > 10, "400px", "auto")
+
+# Crear la tabla interactiva
+datatable(
+  data,
+  rownames  = FALSE,
+  selection = "multiple",
+  filter    = "top",
+  escape    = FALSE,
+  options   = list(
+    pageLength = 10,
+    scrollX    = TRUE,
+    scrollY    = table_h,
+    autoWidth  = FALSE,
+    columnDefs = list(list(
+      targets   = "_all",
+      className = "dt-wrap",
+      width     = paste0(round(100 / max(1, ncol(data))), "%"))))) 
+```
+
+<br>
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Table 3: Results obtained in table format after running the basic example
+</p>
+
+<br>
+
+#### Excluded table
+
+Interactive DataTable showing the data excluded from the final result of our analysis, which, in this case, is empty:
+
+![](images/metaenrichgoexample1.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 1: Excluded data in table format after running the basic example
+</p>
+
+#### Dot Plot (PNG)
+
+-   Renders the top 20 terms pathways along the Y-axis with dot size/color indicating significance.
+
+-   Downloaded as a static `PNG` image.
+
+![](images/metaenrichgo_example1dot.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 2: Results obtained in dot plot format after running the basic example
+</p>
+
+<br>
+
+## Advanced Example: GO Biological Process Enrichment with Filtered Example Data
+
+**Objective:** Perform a GO Biological Process (BP) enrichment analysis using example human gene lists, applying stricter appearance filtering and leveraging table-plot interactivity for refined exploration (search for the word ‘cell’ in description).
+
+### Input
+
+-   **Mode selection:** Select Upload Files and enable the Use Example Data switch to load the four predefined `.txt` gene lists included in the tool.
+
+-   **Download option:** These files can also be downloaded for inspection or adaptation in other projects.
+
+-   **Origin of the data:** The example lists are derived from four independent human lung cancer studies, each available through the GEO database:
+
+    -   **GSE10072:** Contains gene expression profiles comparing tumor and adjacent normal lung tissues from patients with pulmonary adenocarcinoma.
+    -   **GSE19188:** Includes expression data from 91 tumor samples and 65 normal controls covering various NSCLC histological types (adenocarcinoma, squamous cell carcinoma, large cell carcinoma).
+    -   **GSE63459:** Features paired tumor and normal lung samples from 31 patients diagnosed with lung adenocarcinoma.
+    -   **GSE75037:** Provides gene expression profiles from lung tissue samples in patients with non-small cell lung cancer (NSCLC).
+
+::: callout-note
+*This configuration represents a multi-cohort scenario ideal for identifying biologically meaningful and consistently enriched terms across different datasets. Each file is treated as an independent list.*
+:::
+
+### Parameters
+
+The analysis options selected to achieve the objective are as follows:
+
+| Parameter                  | Setting                 | Rationale                                                                                                  |
+|-------------------|-------------------|----------------------------------|
+| Database                   | Gene Ontology (GO)      | GO provides comprehensive coverage of biological annotations.                                              |
+| Ontology                   | Biological Process (BP) | BP targets pathways and biological activities, ideal for assessing higher-level gene function.             |
+| Organism                   | Homo sapiens (Hsa)      | Matches the identifiers used in the example datasets.                                                      |
+| Gene ID type               | SYMBOL                  | Example files contain numeric NCBI IDs (e.g., `672` for `BRCA1`).                                          |
+| Meta-analysis method       | Wilkinson               | By using the *k-th* smallest p-value, Wilkinson balances sensitivity to consistent moderate signals.       |
+| Minimum number of datasets | 3                       | Ensures terms are supported by at least 3 of 4 lists, reducing spurious signals and improving reliability. |
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Table 4: Configuration of the parameters tab for the advanced example of use
+</p>
+
+### Data Visualization
+
+Once all parameters are configured, visualization adjustments are made to tailor the output and highlight meaningful results.
+
+|                         | Configuration                   | Details                                                                                             |
+|-------------------|-------------------|----------------------------------|
+| Columns                 | ID, Description and GeneCount | All other columns deselected so that table output focuses on terms of biological process and genes. |
+| Number of terms to show | 10                              | Maintains visual clarity while allowing coverage of most significant entries.                       |
+| Y-axis label            | ID + Description              | Combines both ID and label for clarity when displaying filtered results.                            |
+| Plot type               | Dot Plot                        | Compact representation well-suited for comparative significance across terms.                       |
+| Color scale             | Low: light grey, High: red      | Color gradient mapped to `p.adjust`, emphasizing more significant results with stronger hues.       |
+| Text size               | 12 pt                           | Increases legibility due to longer combined axis labels.                                            |
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Table 5: Configuration of the data visualization tab for the advanced example of use
+</p>
+
+<br>
+
+Once customization is complete, pressing the Run Analysis button triggers the enrichment workflow. This includes executing the *Over-Representation Analysis (ORA)*, applying the Wilkinson method to combine p-values across datasets, correcting for multiple testing, and rendering both the interactive table and the corresponding plot. The results appear immediately within the `Data Visualization` panel.
+
+After the table is generated, column-specific filters become available through the `DataTable` interface. These filters adapt to the type of data in each column: if the content is textual, it allows keyword-based filtering; if numeric, it enables interval selection.
+
+Given the objective of this example, we start by filtering the `Description` column using the keyword "*cell*". This action instantly updates the plot to display only the matching biological processes. To refine the results further, we apply an additional filter to the `GeneCount` column to include only terms associated with 20 or more genes (`>= 20`).
+
+::: callout-tip
+*All visual adjustments—such as column selection or plot settings (except the data column filtering)—can be made either before or after the analysis is run. Any changes are applied immediately without re-running the analysis.*
+:::
+
+### Outputs
+
+#### Filtered Enrichment Table (Interactive)
+
+-   The main table now displays columns for `ID`, `Description`, and `GeneCount`, but only includes entries that contain the keyword "*cell*" in the `Description` column and have a `GeneCount` of *20* or higher.
+
+-   The filtered data is exported as a `CSV` file containing all visible columns associated with the selected terms. In this case, four terms match the criteria.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(DT)
+
+# Cargar los datos
+example_data <- "./www/MetaEnrichGO_results_2025-05-08.csv"
+data <- read.delim(example_data, sep = ",", header = TRUE)
+
+# Calcular la altura de la tabla en función de las filas
+table_h <- ifelse(nrow(data) > 10, "400px", "auto")
+
+datatable(
+  data,
+  rownames  = FALSE,
+  selection = "multiple",
+  filter    = "top",
+  escape    = FALSE,
+  options   = list(
+    pageLength = 10,
+    scrollX    = TRUE,
+    scrollY    = table_h,
+    autoWidth  = FALSE,
+    columnDefs = list(list(
+      targets   = "_all",
+      className = "dt-wrap",
+      width     = paste0(round(100 / max(1, ncol(data))), "%"))))) 
+```
+
+<br>
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Table 6: Results obtained in table format after running the advanced example
+</p>
+
+<br>
+
+#### Excluded terms table
+
+In this example, filtering was applied to exclude terms that appeared fewer than three times in the dataset. The information that was excluded from the main table is displayed here.
+
+![](images/metaenrichgo_example.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 3: Excluded data in table format after running the advanced example
+</p>
+
+::: callout-warning
+*The terms displayed in this table only reflect exclusions based on the minimum dataset appearance parameter (≥3 appearances). Internal filters applied within the table, such as searching for "cell" or setting an interval for GeneCount, do not affect this exclusion list.*
+:::
+
+#### Interactive Dot Plot
+
+-   Visualizes only the filtered subset, displaying terms related to "cell" and with a `GeneCount` of 20 or higher.
+
+-   The plot is exported as a `HTML` file, providing dynamic interactivity with hover tooltips.
+
+<iframe src="images/MetaEnrichGO_plot_2025-05-08.html" style="width:100%; height:500px;" frameborder="0">
+
+</iframe>
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 4: Results obtained in dot plot format after running the advanced example
+</p>

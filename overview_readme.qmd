@@ -1,0 +1,126 @@
+---
+title: "Overview"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+    self-contained: true
+---
+
+```{=html}
+<style>
+body {
+  text-align: justify;
+  font-size: 0.95em;
+}
+</style>
+```
+
+------------------------------------------------------------------------
+
+The **MetaOmixTools** suite offers a unified web platform for meta-omics data integration and analysis. The top navigation bar includes four main entries, with an `About` dropdown containing supplementary resources:
+
+1.  **Home**
+2.  **MetaRank**
+3.  **MetaEnrichGO**
+4.  **About**
+    -   Instructions
+    -   Contacts
+    -   Gallery
+    -   GitHub
+
+![](www/images/metaomixtools_overview.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Figure 1: MetaOmixTools overview
+</p>
+
+<br>
+
+## Home
+
+The **Home** page serves as the landing section for *MetaOmixTools*, offering:
+
+-   **General description**: A concise panel explaining the purpose and scope of *MetaOmixTools*, highlighting its role in simplifying multi-study omics analysis.
+-   **Citation panel**: Recommended format to acknowledge the suite in publications, ensuring proper credit to the development team.
+-   **Institutional link**: A linkable *CIPF* logo directing to the official website of the *Centro de Investigación Príncipe Felipe*.
+-   **Interactive showcase**: This section displays side-by-side cards for *MetaRank* and *MetaEnrichGO*. Each tool is represented by a logo with hover effects that reveal the following details:
+    -   Short description of the tool’s main purpose.
+    -   Supported input file types.
+    -   Allowed output formats.
+    -   A dedicated button that links directly to the corresponding tool interface.
+
+![](www/images/metaomixtools_apps.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Figure 2: MetaOmixTools tools that the suite offers: MetaRank and MetaEnrichGO
+</p>
+
+<br>
+
+## MetaRank
+
+The **MetaRank** section loads the *MetaRank* tool, which enables consensus ranking of genes from multiple ordered gene lists derived from different studies or technologies.
+
+-   **Input**: Accepts gene lists through file upload (`TSV`/`CSV`/`TXT`) or direct paste into a text area.
+-   **Meta-analysis algorithms**: Offers both weighted and unweighted ranking methods, including *RankProd* and *RobustRankAggreg*.
+-   **Filters**: Allows customization of gene inclusion criteria, such the minimum number of occurrences in lists and missing value management. In addition, it allows to apply an enrichment analysis to up to the first 100 genes in the list.
+-   **Output**: Provides downloadable results including ranked tables in `CSV` or `TSV` formats and graphical summaries in `PNG`, `JPG` or `HTML` formats.
+
+------------------------------------------------------------------------
+
+<p>*For more information or detailed usage instructions, go to* [*`About → Instructions → MetaRank`*]{style="color:darkblue; text-decoration:underline;"}.</p>
+
+<br>
+
+## MetaEnrichGO
+
+The **MetaEnrichGO** section gives access to functional enrichment analysis based on multiple user-supplied lists derived from different studies or technologies.
+
+-   **Input**: Supports only `TXT` format, either uploaded or pasted.
+-   **Ontology options**: Includes Gene Ontology terms or custom annotation inputs via TERM2GENE and TERM2NAME tables.
+-   **Parameters**: Users can adjust the enrichment parameters, such as the organism, the minimum number of occurrences in lists or the database used, since in addition to *GO*, it is possible to use *KEGG* and *Reactome*.
+-   **Output**: Provides downloadable results of enrichment tables in `CSV` or `TSV` formats and graphical summaries in `PNG`, `JPG` or `HTML` formats.
+
+------------------------------------------------------------------------
+
+<p>*For more information or detailed usage instructions, go to* [*`About → Instructions → MetaEnrichGO`*]{style="color:darkblue; text-decoration:underline;"}.</p>
+
+<br>
+
+## About
+
+The `About` dropdown provides essential support and additional materials to enhance user experience:
+
+### Instructions
+
+Comprehensive documentation for every section of the suite:
+
+-   **Overview**: This page, outlining the general navigation, layout, and primary components of *MetaOmixTools*.
+-   **MetaRank**: A complete guide including data preparation, choice of algorithm, parameter settings and exploration of the results, as well as recommendations for use or error correction.
+-   **MetaRank practical examples**: The presentation of 3 examples of use to address all the possibilities offered by the tool. One example is of basic use, the second of full use and the third of advanced use, alternating the input possibilities.
+-   **MetaEnrichGO**: Detailed steps for enrichment analysis, covering ontology selection, parameter configuration, output interpretation, and sample workflows as well as recommendations for use or error correction.
+-   **MetaEnrichGO practical examples**: The presentation of 2 examples of use to address all the possibilities offered by the tool.
+
+### Contacts
+
+Direct channels for help and feedback:
+
+-   **Development Team**: Email addresses for reporting issues, requesting support, and providing suggestions.
+-   **FAQ**: Frequently Asked Questions addressing common troubleshooting topics, tips for data formatting, and best practices.
+
+### Gallery
+
+A curated showcase of typical outputs to illustrate the tools’ capabilities:
+
+-   **Interface snapshots**: Screenshots demonstrating interactive features options.
+-   **Consensus ranking visualizations**: Heatmaps and distribution plots generated by *MetaRank*. Examples of ranked tables and the top genes enrichment analisis as their dot/bar plot.
+-   **Enrichment results**: Dot plots, bar charts, and summary tables from *MetaEnrichGO*.
+
+### GitHub
+
+The central hub for collaboration and code access:
+
+-   **Repository**: Link to the MetaOmixTools GitHub page for source code, issue tracking, and community contributions.

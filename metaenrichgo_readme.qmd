@@ -1,0 +1,439 @@
+---
+title: "MetaEnrichGO Usage Instructions"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+    self-contained: true
+---
+
+```{=html}
+<style>
+body {
+  text-align: justify;
+  font-size: 0.95em;
+}
+</style>
+```
+
+------------------------------------------------------------------------
+
+This comprehensive tutorial explains how to use MetaEnrichGO, a Shiny-based tool for meta-analysis of functional enrichment across multiple gene lists. It covers all aspects from data input to the statistical methodology and result interpretation.
+
+1.  **Overview**
+2.  **Inputs**
+    -   Input Methods
+    -   Input Example
+3.  **Parameters**
+    -   Database
+    -   Ontology (GO only)
+    -   Organism
+    -   Gene ID Type
+    -   Meta-Analysis Method
+    -   Minimum Number of Datasets
+4.  **Data Visualization**
+    -   Table Columns
+    -   Plot Settings
+5.  **Outputs**
+    -   Results Table
+        -   Excluded Terms
+    -   Plot Output
+        -   Dotplot
+        -   Barplot
+6.  **Background Pipeline**
+7.  **Best Practices**
+8.  **Troubleshooting**
+9.  **Citation**
+
+<br>
+
+## Overview
+
+MetaEnrichGO facilitates functional enrichment analysis for lists of genes derived from meta-omics experiments. Its key features include:
+
+-   Multiple input modes (upload, paste, example data).
+-   Selection of functional databases: *Gene Ontology (GO), Kyoto Encyclopedia of Genes and Genomes (KEGG)*, and *Reactome*.
+-   Support for several gene ID (`SYMBOL`, `ENTREZID` and `ENSEMBL`) types and multiple organisms (*Homo sapiens*, *Mus musculus* and *Rattus norvegicus*).
+-   Application of different *p-value* combination methods (`Fisher`, `Stouffer`, `Tippett`, `Wilkinson`).
+-   Visualization through interactive tables and plots.
+
+![](www/images/metaenrichgo_overview.png){fig-alt="Figure 1: MetaEnrichGO overview" fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 1: MetaEnrichGO overview
+</p>
+
+## Inputs
+
+### Input Methods
+
+1.  **Upload Files:** When the “Upload Files” mode is enabled, it is possible to select one or more text files (`.txt`) via the file upload control. The system recognizes each file as a list of genes (one identifier per line, without a header), automatically removes duplicates and missing values, and correctly handles both Unix (`\n`) and Windows (`\r\n`) line endings. If more than one gene is provided on a single line separated by delimiters (e.g., `BRCA1///BRCA2`), only the first entry (`BRCA1`) is retained. Clicking the ℹ️ icon opens a modal showing a sample file structure, and example datasets can be downloaded for in-depth study and reference. There is no strict limit to the number of gene lists that can be uploaded, as it depends on the size of each list. For example, when lists contain approximately 20,000 genes, up to 12 have been successfully processed. In contrast, for smaller lists (ranging from 100 to 500 genes), the system has handled up to 50 lists without issue.
+
+2.  **Paste Genes:** When the “Paste Genes” mode is enabled, gene lists can be entered directly into a text area. Each list is delimited by `###`, and within each section the system expects one gene per line (e.g., `TP53\nBRCA1\nEGFR`), with no header row. Duplicate entries and blank lines are cleaned up automatically, and if a line contains multiple gene identifiers (e.g., `BRCA1///BRCA2`), only the first is used. The placeholder text illustrates this formatting.
+
+3.  **Use Example Data**: Enabling the “*Use Example Data*” switch loads predefined files that represent various analysis scenarios, allowing users to explore the workflow without providing their own data.
+
+::: callout-note
+Many elements in the interface include helpful tooltips that appear when you hover your mouse over them. These tooltips provide additional explanations, usage instructions, or data source information. For example, hovering over the *Use Example Data* switch reveals the origin of the example datasets, while the text input area for pasted genes displays detailed formatting guidance. Take advantage of these tooltips to better understand each parameter and improve your experience with the application.
+:::
+
+
+::: {style="display: flex; justify-content: center; gap: 20px; margin-bottom: 1em;"}
+<img src="www/images/metaenrichgo_input.png" alt="MetaEnrichGO input" width="265"/> <img src="www/images/metaenrichgo_i.png" alt="MetaEnrichGO Info Button Example" width="415"/>
+:::
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 2: MetaEnrichGO input methods and information displayed in the pop-up window ℹ️ on the example file format.
+</p>
+
+### Input Example
+
+The table above shows four gene lists used in our example analysis. These lists come from 4 independent studies related to lung cancer and associated with the following identifiers: GSE10072, GSE19188, GSE63459, GSE75037. Each column corresponds to a list, containing 256, 257, 256 and 236 gene identifiers respectively, including duplicate or missing entries. This arrangement allows direct comparison of the size and composition of the lists across studies, highlighting the diverse scope of each dataset prior to subsequent meta-analysis.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(DT)
+example_files <- c(
+  "./modules/metaenrichgo/example_data/genes1.txt",
+  "./modules/metaenrichgo/example_data/genes2.txt",
+  "./modules/metaenrichgo/example_data/genes3.txt",
+  "./modules/metaenrichgo/example_data/genes4.txt")
+
+gene_lists <- lapply(example_files, function(path) {
+  lines <- readLines(path, warn = FALSE)
+  lines <- trimws(lines)
+  lines[lines != ""]})
+max_length <- max(sapply(gene_lists, length))
+gene_lists_padded <- lapply(gene_lists, function(vec) {
+  length(vec) <- max_length
+  vec})
+df_gene_lists <- as.data.frame(
+  setNames(gene_lists_padded, paste0("List_", seq_along(gene_lists_padded))),
+  stringsAsFactors = FALSE)
+
+datatable(df_gene_lists, rownames = FALSE)
+```
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 10px;">
+Table 1: The content of the 4 example files together in one table
+</p>
+
+## Parameters
+
+Once the gene lists are loaded, six parameters become available to tailor the analysis. These settings cover everything from filtering which genes are included to defining the meta-analysis method. Each option allows precise control over data pre-processing and statistical aggregation to ensure results match the experimental design.
+
+![](www/images/metaenrichgo_parameters.png){fig-align="center" width="225"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 3: The parameter panel offered by MetaEnrichGO to adjust the enrichment analysis.
+</p>
+
+### Database
+
+-   **Gene Ontology (GO)**: A structured and controlled vocabulary used to describe the functions of genes and their products in a consistent and standardized way. Its content is divided into three sub-ontologies:
+
+    -   **Biological Process (BP)**: Pathways and larger processes (e.g., *cell cycle, signal transduction*).
+    -   **Molecular Function (MF)**: Biochemical activities (e.g., *ATP binding, kinase activity*).
+    -   **Cellular Component (CC)**: Subcellular locations (e.g., *nucleus, ribosome*).
+
+-   **KEGG (Kyoto Encyclopedia of Genes and Genomes)**: Database resource for understanding high-level functions and utilities of the biological system, such as the cell, the organism and the ecosystem, from molecular-level information, especially large-scale molecular datasets generated by genome sequencing and other high-throughput experimental technologies.
+
+-   **Reactome**: A curated database of human biological pathways and reactions, including signaling, metabolism, and immune system processes. It also supports several model organisms via ortholog mapping.
+
+All three resources serve as the reference background in the `Over-Representation Analysis (ORA)` step, where the frequency of your input genes in each term or pathway is statistically compared against a genomic background to identify the most significantly enriched biological categories.
+
+### Ontology (GO Only)
+
+When *Gene Ontology (GO)* is selected as the database, an Ontology choice must be specified. Each GO branch provides a distinct view of gene function:
+
+-   **Biological Process (BP)** Describes high-level biological objectives accomplished by ordered assemblies of molecular functions—such as “*cell cycle*,” “*signal transduction*,” or “*immune response*.” Use BP to discover which overarching pathways or processes your genes collectively influence.
+
+-   **Molecular Function (MF)** Captures the elemental activities of proteins or gene products at the biochemical level—examples include “*ATP binding*,” “*kinase activity*,” or “*transcription factor binding*.” MF is ideal for pinpointing the specific enzymatic or binding roles enriched in your gene set.
+
+-   **Cellular Component (CC)** Defines where gene products exert their function within the cell, such as “*nucleus*,” “*mitochondrion*,” or “*ribosome*.” CC helps reveal the subcellular localization patterns common to your genes, indicating, for instance, whether they cluster in particular organelles.
+
+Selecting the appropriate ontology refines the enrichment analysis, focusing it on either broader process-level insights (BP), detailed activity-level functions (MF), or spatial context within the cell (CC).
+
+### Organism
+
+The following organisms are supported, each identified by an internal code and NCBI Taxonomy ID:
+
+-   **Homo sapiens** (`Hsa`; Taxonomy ID: 9606) – Human gene symbols follow the HGNC standard (e.g., `TP53`).
+-   **Mus musculus** (`Mmu`; Taxonomy ID: 10090) – Mouse gene symbols use the MGI nomenclature (e.g., `Trp53`).
+-   **Rattus norvegicus** (`Rno`; Taxonomy ID: 10116) – Rat gene symbols use RGD notation (e.g., `Rps6kb1`).
+
+### Gene ID Type
+
+Specify the identifier system for your gene lists:
+
+-   **SYMBOL**: Common gene names or symbols (e.g., `BRCA1`).
+-   **ENTREZID**: Unique numerical IDs assigned by NCBI (e.g., `672`).
+-   **ENSEMBL**: Stable gene IDs from the Ensembl database (e.g., `ENSG00000012048`).
+
+::: callout-warning
+It is crucial to match your gene list format to the selected ID type. Selecting the wrong identifier system will lead to failed mappings and inaccurate enrichment results.
+:::
+
+### Meta-Analysis Method
+
+This parameter determines how *p-values* from multiple gene enrichment results are statistically combined into a single meta-analytic value. Four established methods are available, each based on different mathematical principles and assumptions:
+
+-   **Fisher’s Method** This technique aggregates independent p-values by calculating the statistic $-2 \sum \ln(p_i)$ which follows a chi-squared distribution with 2n degrees of freedom (n = number of lists). Fisher’s method places greater weight on small p-values, making it highly sensitive when even a few studies show strong enrichment. Best suited for detecting strong signals present in a subset of datasets, especially when consistency across all lists is not required.
+-   **Stouffer’s Z-Score Method** P-values are first transformed into Z-scores (using the inverse normal distribution), then combined as a weighted sum: $Z = \frac{\sum w_i z_i}{\sqrt{\sum w_i^2}}$ where $w_i$ corresponds to a study-specific weight (often proportional to sample size). This approach balances contributions across lists and performs well when list sizes or variances differ. Ideal when datasets vary in size or reliability, allowing integration with custom weighting schemes.
+-   **Tippett’s Method** The most straightforward of the group, Tippett’s method takes the smallest p-value across all lists as the combined statistic. It excels at detecting categories that are extremely significant in even one dataset but is less robust if significance is spread moderately across many lists. Recommended for exploratory analysis focused on discovering standout signals in individual gene lists.
+-   **Wilkinson’s Method** A generalization of Tippett’s approach, Wilkinson’s method uses the k-th smallest *p-value* (for a user-specified k) as the test statistic. By choosing different values of k, the analyst can tune sensitivity toward either early extreme values (small *k*) or broader consistency (larger *k*). Useful when the goal is to adjust stringency and detect terms supported by a flexible number of datasets.
+
+### Minimum Number of Datasets
+
+This slider filters out terms that do not appear in a minimum number of input lists. For example, setting this to 2 means only terms enriched in two or more datasets will be retained. Terms that do not meet this criterion are excluded from the final results and are instead displayed in a separate table of excluded terms, allowing for transparent review and optional downstream inspection.
+
+## Data Visualization
+
+In the sidebar panel, there is also a tab labeled *Data Visualization*, which provides options to customize various aesthetic aspects of the output. This includes adjusting the number of columns displayed in the result tables, modifying the color schemes used in the plots, and editing axis titles or other graphical elements to better suit the user's presentation or analysis preferences.
+
+### Table Settings
+
+The interface allows selecting and deselecting specific columns from the final result table. This customization enables users to tailor the displayed information to their needs. When using the download buttons, only the currently visible columns will be included in the exported file. For instance, if only the *ID* and *Description* columns are selected out of eight possible ones, the downloaded table will contain just those two.
+
+::: callout-note
+-   Filters applied directly within the table interface (e.g., keyword searches such as "cell") are reflected in the downloaded file too, but it works after running the analysis
+-   The table listing excluded genes or terms is not customizable—its structure and contents remain fixed for both display and export (full table).
+:::
+
+### Plot Settings
+
+This section allows customization of the appearance of enrichment plots to better suit presentation or analysis needs. Several visual parameters can be adjusted:
+
+-   **Number of terms to show**: Defines how many of the top-ranking enriched terms will be displayed in the plot. This helps focus the visualization on the most relevant results.
+-   **Y-axis**: Users can choose what appears on the Y-axis—either the `Term ID`, the `Description`, or a combination of both. When selecting both, the term and its description are shown together, separated by a hyphen (“`-`”), providing more context for each entry.
+-   **Plot Type**: Two types of plots are supported:
+    -   *Dot plot*, which represents each term as a point, usually with size or color indicating significance or gene count.
+    -   *Bar plot*, where each term is displayed as a bar, useful for comparing absolute or relative values.
+-   **Color Scale**: A gradient color scale is applied based on the adjusted p-value (`p.adjust`). Users can customize both ends of the color gradient (low and high values) to match their preferred visual style or color scheme. This makes interpretation easier, especially when using consistent color themes across multiple plots.
+-   **Text Size**: Allows control over the font size used in the plot. Increasing or decreasing this value can help adapt the plot for screens, print, or accessibility preferences.
+
+## Outputs
+
+### Results Table
+
+Provides a detailed summary of enriched terms identified across the input gene sets. It supports sorting, column-based filtering, and downloads in both `CSV` and `TSV` formats. Each row corresponds to a unique enrichment term, with associated statistical and contextual information.
+
+#### Available columns:
+
+-   **ID**: The unique identifier of the enrichment term. For example, *GO:0006915* for “*apoptotic process” (Gene Ontology),* or *05200* for “*Pathways in cancer” (KEGG).*
+
+-   **Description**: A human-readable name or description of the term, providing biological context.
+
+-   **pvalue**: The combined raw p-value derived from the selected meta-analysis method (e.g., *Fisher*, *Stouffer*, etc.). This value reflects the probability of observing the enrichment by chance.
+
+    -   *Lower values* (e.g., \< 0.05) suggest stronger statistical significance.
+    -   *Higher values* imply less confidence in the enrichment.
+
+-   **p.adjust**: The adjusted p-value after correcting for multiple comparisons using the `Benjamini–Hochberg False Discovery Rate (FDR)` method. This value controls the proportion of false positives.
+
+    Again, lower values (e.g., \< 0.05 or \< 0.01) indicate more reliable and statistically significant results. Adjusted values are especially important when analyzing large gene sets, where multiple testing can inflate false positives.
+
+-   **ListCount**: Indicates how many of the input gene lists contained the given enrichment term. Higher values suggest the term is consistently enriched across multiple datasets, which can point to broader biological relevance.
+
+-   **ListNames**: Lists the names of the input files or datasets in which the term was found. This helps trace back which experiments or conditions contributed to each enrichment.
+
+-   **GeneCount**: Total number of genes associated with the term in the datasets where it appeared. Useful to assess the size of the gene set behind the enrichment signal.
+
+-   **GeneID**: A list of gene identifiers (`SYMBOL`, `ENTREZID`, or `ENSEMBL`, depending on user selection) that contributed to the enrichment for that term. These are the genes from the input lists that overlapped with the term’s annotation.
+
+::: callout-note
+Each column in the results table includes a small question mark icon that provides additional information when hovered over. These tooltips offer concise explanations of the column’s purpose and how to interpret its values, allowing users to quickly understand the data without needing to refer back to the documentation. Simply place your cursor over the icon to view the tooltip — no need to click.
+:::
+
+![](www/images/metaenrichgo_resultstable.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 4: The main table generated to represent the enrichment analysis result.
+</p>
+
+#### Excluded Terms
+
+A secondary table is available to display enrichment terms that were excluded from the main results due to not meeting the *Minimum Number of Datasets* threshold. This table is accessible via the `eye icon` toggle and is intended to provide transparency regarding filtered-out data.
+
+Unlike the main results table, the excluded terms are not subjected to the meta-analysis step, and thus do not contain combined `p-values` or adjusted `p-values`. This design choice helps reduce computation time while still allowing users to inspect the removed terms.
+
+The structure of this table differs slightly:
+
+-   It includes information such as the term `ID`, `Description`, `ListCount`, `ListNames`, `GeneCount` and `GeneID`.
+-   Statistical columns such as `pvalue`, `p.adjust`, or plot-related metadata are not included.
+
+The table supports interactive filtering and sorting, but column selection is not available. Downloads are limited to `TSV` format only, and reflect the entire table contents as displayed (i.e., column visibility cannot be modified).
+
+![](www/images/metaenrichgo_excludedtable.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 5: Secondary table generated to represent the excluded data from the main enrichment analysis result.
+</p>
+
+### Plot Output
+
+The data resulting from the meta-analysis and summarized in the main results table is also represented visually through interactive plots. These plots provide a complementary overview of enriched terms and support intuitive interpretation of the results with this following features:
+
+-   Two plot type are available: *Dot Plot* and *Bar Plot*, both depicting the number of genes associated with each term (gene count) and their corresponding adjusted p-values (`p.adjust`). The color scale can be customized to reflect statistical significance.
+-   Tooltips appear on hover, displaying key information such as the full term or pathway name, GeneCount, and adjusted p-value, enhancing interpretability.
+-   Download Options include `PNG`, `JPG`, or `HTML` (interactive) formats, allowing users to export plots for presentations or further analysis.
+
+::: callout-note
+Table-Plot reactivity ensures consistency. For example, filtering the results table (e.g., by the word "cell") dynamically updates the plot to show only the matching terms.
+:::
+
+::: panel-tabset
+### Dotplot
+
+![](www/images/metaenrichgo_dot.jpg){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: -7px;">
+Figure 6: Dot plot generated to represent the enrichment analysis result.
+</p>
+
+### Barplot
+
+![](www/images/metaenrichgo_bar.jpg)
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 12px;">
+Figure 7: Bar plot generated to represent the enrichment analysis result.
+</p>
+
+:::
+
+## Background Pipeline
+
+The MetaEnrichGO workflow processes input gene lists through a series of well-defined steps to produce both tabular and graphical enrichment results:
+
+1.  **Data Ingestion and Preprocessing**
+
+    -   **File Upload**: When `.txt` files are provided, each file is read line by line, trimming whitespace and preserving one gene identifier per line.
+    -   **Paste Mode**: If gene lists are pasted, the raw text is split on the delimiter `###` to separate individual lists; each block is then tokenized on whitespace to extract one gene per entry.
+    -   **Normalization**: All lists undergo symbol normalization to map aliases to official IDs and remove duplicate entries automatically.
+
+2.  **Annotation Retrieval**
+
+    -   A dedicated script located in the `database_annotations/get_annotations.R` file generates local annotation files for *GO*, *KEGG*, and *Reactome*, including `TERM2GENE` and `TERM2NAME` mappings.
+    -   During enrichment analysis, the system uses the generic `enricher()` function from the clusterProfiler package instead of specific online-dependent functions like `enrichGO()` or `enrichKEGG()`. This approach allows leveraging the locally preloaded annotation files in memory, resulting in significantly faster and more robust performance, and eliminating the risk of timeouts or failures due to unstable internet connections.
+    -   All annotation files can be found in the `/database_annotations/` directory and are automatically loaded at runtime.
+
+3.  **Over-Representation Analysis (ORA)**
+
+    -   For each normalized gene list, the appropriate ORA function is invoked (`ORA_GO`, `ORA_KEGG`, or `ORA_REACTOME`) and the enrichment is calculated by comparing the input genes against the local annotation universe using hypergeometric tests.
+    -   The raw output per list includes term IDs, descriptions, raw p-values, and associated gene sets.
+
+4.  **Result Consolidation**
+
+    -   Only selected columns (*Term*, *Description*, *p-value,* *gene count, gene IDs,* etc.) are retained and merged into a unified structure for downstream processing.
+    -   The remaining metadata, such as which files contributed each term, is also recorded.
+
+5.  **Meta-Analysis of P-Values**
+
+    -   Upon user action (`Run Analysis`), raw p-values from each ORA result are combined according to the chosen meta-analysis method (`Fisher`, `Stouffer`, `Tippett`, or `Wilkinson`).
+    -   An initial pass computes combined p-values; following that, the `Benjamini–Hochberg` procedure adjusts for multiple testing.
+
+6.  **Filtering and Separation**
+
+    -   An appearance filter (`Minimum Number of Datasets`) is applied: terms present in fewer lists than the threshold are flagged as “excluded.”
+    -   Two tables are generated:
+        -   **Included Terms**: Terms meeting the frequency threshold, complete with combined p-values and adjusted p-values.
+        -   **Excluded Terms**: Terms filtered out early, shown without statistical columns to conserve computation.
+
+7.  **Result Presentation**
+
+    -   **Interactive Table**: The included terms are displayed in a sortable, filterable table, with options to select columns and download in `CSV` or `TSV` formats.
+    -   **Excluded Table**: A separate, collapsible table shows excluded terms; column customization is unavailable and downloads are limited to `TSV`.
+    -   **Plots**: Enrichment results are visualized as dot plots or bar plots, with hover tooltips, color scales mapped to significance, and reactive linkage to table filters. Export options include `PNG`, `JPG`, and interactive `HTML`.
+
+<br>
+
+![](www/images/metaenrichgo_workflow.png)
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Figure 8: MetaEnrichGO background workflow
+</p>
+
+## Best Practices
+
+-   **Ensure correct input formatting.** Input files should list one gene identifier per line without headers. Consistent line endings (Unix `\n` or Windows `\r\n`) are automatically handled, but adhering to this format simplifies preprocessing.
+
+-   **Match identifier type and organism code.** Verify that gene IDs (`SYMBOL`, `ENTREZID`, or `ENSEMBL`) correspond to the selected organism (e.g., *Hsa* for human, *Mmu* for mouse). Mismatches will lead to failed mappings and missing annotations.
+
+-   **Leverage example datasets.** Provided example files illustrate the required structure and content. Loading these before running custom data helps validate file formatting and parameter settings.
+
+-   **Select the meta-analysis method to suit your study design.**
+
+    -   Use `Fisher` or `Tippett` when seeking strong signals in a subset of lists.
+    -   Choose `Stouffer` or `Wilkinson` for balanced integration across variable-sized datasets.
+
+-   **Adjust the minimum dataset threshold thoughtfully.** Setting a high threshold increases confidence in consistently enriched terms but may exclude potentially relevant categories present in only a few lists. Lower thresholds will include more terms but may increase false positives.
+
+-   **Review excluded terms.** If a term of particular interest is not present in the main results, consult the Excluded Terms table before altering thresholds, this can reveal whether the term failed to meet the appearance filter.
+
+-   **Customize visualization settings for clarity.** Adjust table columns, plot type, color scales, and font sizes to enhance readability and highlight key findings in presentations or publications.
+
+-   **Monitor performance.** Very large numbers of input lists or terms (e.g., \>30 lists or \>1000 terms) can slow analysis and plotting. In such cases, consider reducing list count, narrowing the term slider, or increasing the minimum dataset threshold.
+
+## Troubleshooting
+
+| Issue                    | Possible Solution                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+|-------------|-----------------------------------------------------------|
+| File Format Error        | A common issue arises when users upload files that do not adhere to the required structure. Each input file must be in plain-text `.txt` format, containing only one gene per line, without additional characters such as commas, tabs, or symbols like `#`. It's important to ensure line endings are consistent across platforms, using either Unix (`LF`) or Windows (`CRLF`) conventions.                                                                 |
+| Paste Format Error       | When pasting gene lists directly, formatting errors frequently occur if separators or table-like structures are used. Each list should be separated by a line containing only `###`, and genes must be entered one per line. The input should be plain text without the use of commas, semicolons, tabs, pipes, or any other delimiters. Symbols or additional formatting from spreadsheets should be avoided.                                                |
+| Invalid Organism         | Incorrect organism selection can lead to mismatches between gene symbols and the annotation databases. It is essential that gene names follow the expected convention for the selected species. For example, human genes are typically written in all uppercase (e.g., `TP53`, `BRCA1`), whereas mouse or rat genes use only the first letter capitalized (e.g., `Trp53`, `Brca1`). Typos or unexpected capitalizations can prevent successful mapping.       |
+| Invalid Gene Identifiers | Users must ensure that the selected gene ID type (SYMBOL, ENTREZID, ENSEMBL) is consistent with both the input data and the chosen organism. SYMBOL identifiers are gene names such as `TP53` or `Tpp1`, ENTREZID values are numeric only, and ENSEMBL IDs begin with `ENS` followed by a series of digits (e.g., `ENSG00000141510`). Mixing different identifier types within the same file is discouraged, as it may lead to errors or incomplete mappings. |
+| No Enrichment Results    | If no terms appear after enrichment analysis, the issue often lies in overly strict filters or insufficient overlap across datasets. One key parameter to review is the “Minimum Number of Datasets” threshold; if it's set too high, many terms may be excluded. Consider lowering this threshold to include more terms. Also ensure that gene lists have enough common genes to detect shared biological processes.                                         |
+| Slow Performance         | Performance can be significantly impacted by the size and number of input datasets. Increasing the dataset threshold can help by filtering out less relevant terms. In general, avoid uploading or pasting excessively large datasets unless necessary for your analysis.                                                                                                                                                                                     |
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Table 2: The list of possible errors that can be experienced and their possible cause
+</p>
+
+<br>
+
+In addition to the summarized issues and suggestions presented in the table above, the following section visually illustrates the main error messages that may appear during the use of the application. Each message corresponds to a common input or processing issue, offering a brief explanation of what went wrong, how it affects the workflow, and what can be done to resolve it. In some cases, specific files or pieces of information that caused the problem are clearly indicated to help the user correct the input efficiently and continue without interruption.
+
+::: panel-tabset
+### File Format
+
+![](www/images/metaenrichgo_file_error.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Table 9: Pop-up window displayed when an error related to the file format is detected.
+</p>
+
+### Paste Format
+
+![](www/images/metaenrichgo_paste_error.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Table 10: Pop-up window displayed when an error related to the paste format is detected.
+</p>
+
+### Organism
+
+![](www/images/metaenrichgo_organism_error.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Table 11: Pop-up window displayed when an error related to the organism selection is detected.
+</p>
+
+### GeneID
+
+![](www/images/metaenrichgo_geneid_error.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Table 12: Pop-up window displayed when an error related to the geneid selection is detected.
+</p>
+
+### No Biological Information
+
+![](www/images/metaenrichgo_noinfo_error.png){fig-align="center"}
+
+<p style="text-align: center; font-style: italic; color: #666; margin-top: 5px;">
+Table 13: Pop-up window displayed when an error related to the uploadad or pasted datas content is detected.
+</p>
+
+:::
+
