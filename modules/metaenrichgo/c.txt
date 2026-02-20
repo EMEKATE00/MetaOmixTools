@@ -1,0 +1,1862 @@
+################################################################################
+#                                                                              #
+#                               Master’s Thesis                                #
+#                                                                              #
+#     Title: TFM: Development of the Meta-Analysis Tool MetaEnrichGO           #
+#                                                                              #
+#     Author: Maksym Kupchyk Tiurin                                            #
+#     Supervisor: Francisco García García                 Year: 2025           #
+#     Co-supervisor: Rubén Grillo Risco                                        #
+#                                                                              #
+#     Academic Institution: CIPF - Centro de Investigación Príncipe Felipe     #
+#                                                                              #
+################################################################################
+
+#-------------------------------------------------------------------------------
+# Loading of the required dependencies 
+#-------------------------------------------------------------------------------
+
+library(shiny)                  # enables building interactive web app
+library(shinycssloaders)        # add a loading animation to outputs instead
+library(shinyWidgets)           # custom input controls and user interface components
+library(shinyBS)                # adds additional Twitter Bootstrap components 
+library(shinyjs)                # perform common useful JavaScript operations
+library(bslib)                  # toolkit for Shiny and R based on Bootstrap
+library(dplyr)                  # tool for working with data.frame objects
+library(DT)                     # interactive representation of data.frames
+library(ggplot2)                # system for declaratively creating graphics
+library(processx)               # run system processes in the background
+library(plotly)                 # makes interactive, publication-quality graphs
+library(zip)                    # allows dwnload more than one file at the same time
+
+#------------------------------------------------------------------------------- 
+# The user interface (ui) object controls the layout and appearance of your app
+#-------------------------------------------------------------------------------
+
+# R/modules/metaenrichgo/mod_metaEnrichGO.R
+
+source("./modules/metaenrichgo/R/ORA.R")
+source("./modules/metaenrichgo/R/meta-analysis.R")
+
+mod_metaEnrichGO_ui <- function(id) {
+  # Define el namespace para el módulo
+  ns <- NS(id)
+  
+  tagList(
+    tags$head(
+      includeCSS("modules/metaenrichgo/www/style.css")
+    ),
+    tags$head(
+      tags$style(HTML("
+    /* Wrap header text + icon */
+    .dt-header-with-icon {
+      display: inline-flex;
+      align-items: center;
+    }
+    .dt-header-label {
+      margin-right: 4px;
+    }
+    /* Little circle with white '?' */
+    .dt-info-icon {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      line-height: 16px;
+      text-align: center;
+      border-radius: 50%;
+      background: #888;
+      color: white;
+      font-size: 12px;
+      cursor: help;
+    }
+    /* Optional: give a slightly darker bg on hover */
+    .dt-info-icon:hover {
+      background: #555;
+    }
+  "))),
+    
+    # Diseño principal de la página con una barra lateral
+    page_sidebar(
+      id = ns("metaenrichgo_sidebar"),  # <-- AÑADIR ESTA LÍNEA
+      title = "MetaEnrichGO",
+      
+      sidebar = sidebar(
+        width = "380px",
+        
+        # Paneles con pestañas para organizar los controles
+        tabsetPanel(
+          
+          # Pestaña 1: Análisis
+          tabPanel("Analysis", useShinyjs(),
+                   
+                   tags$h5("Input", style = "margin-top: 20px;"), 
+                   
+                   # Selección del método de entrada
+                   radioButtons(inputId  = ns("inputMethod"),
+                                label    = "Input method",
+                                choices  = c("Upload Files" = "files",
+                                             "Paste Genes" = "paste"),
+                                selected = "files"),
+                   
+                   # Panel condicional para la carga de archivos
+                   conditionalPanel(
+                     condition = sprintf("input['%s'] == 'files'", ns("inputMethod")),
+                     fluidRow(
+                       column(10, fileInput(inputId   = ns("files"),
+                                            label     = "Choose txt Files",
+                                            multiple  = TRUE,
+                                            accept    = c(".txt", ".tsv"))),
+                       column(2, actionButton(inputId = ns("showExample"), 
+                                              label   = "", 
+                                              icon    = icon("info-circle", lib = "font-awesome"),
+                                              class   = "btn-info"))
+                     ),
+                     
+                     tags$p("Use example data?", style = "margin-top: -15px; margin-bottom: -10px;"),
+                     fluidRow(
+                       column(width = 11,
+                              div(switchInput(inputId  = ns("useExampleData"),
+                                              onLabel  = "Yes",
+                                              offLabel = "No",
+                                              value    = FALSE),
+                                  title = HTML("These example human gene lists (4 studies related to lung cancer: GSE10072, GSE19188, GSE63459, GSE75037) contain one gene symbol per line, have no headers, and include duplicates and blank lines to simulate raw data."),
+                                  style = "cursor: help;")
+                       ),
+                       column(width = 1,
+                              downloadLink(outputId = ns("downloadExample"),
+                                           label    = icon("download"), 
+                                           style    = "margin-left:-28px; margin-top:10px;")
+                       )
+                     )
+                   ),
+                   
+                   # Panel condicional para pegar genes
+                   conditionalPanel(
+                     condition = sprintf("input['%s'] == 'paste'", ns("inputMethod")),
+                     div(textAreaInput(inputId     = ns("pastedGenes"),
+                                       label       = "Paste Gene Lists",
+                                       placeholder = "TP53\nMYC\nEGFR\nBRCA1\n...\n###\nBRCA1\nPTEN\nMYC\n...",
+                                       height      = "160px"),
+                         title = HTML("MetaEnrichGO Paste Format:\n- No header required; only gene symbols.\n- One gene per line, separated by '\\n'.\n- Separate multiple lists with '###' on its own line.\n- Do not include numeric values or additional columns.\n- Raw, unweighted gene rankings only."),
+                         style = "cursor: help;")
+                   ),
+                   
+                   tags$hr(style = "margin-top: 10px; margin-bottom: 10px;"),
+                   
+                   tags$h5("Parameters"), 
+                   
+                   # Selección de la base de datos
+                   selectInput(inputId  = ns("database"),
+                               label    = "Database",
+                               choices  = c("Gene Ontology (GO)" = "GO",
+                                            "KEGG"               = "KEGG",
+                                            "Reactome"           = "Reactome",
+                                            "Personalized"       = "Personalized"),
+                               selected = "GO"),
+                   
+                   # Panel condicional para opciones de GO
+                   conditionalPanel(
+                     condition = sprintf("input['%s'] == 'GO'", ns("database")),
+                     radioButtons(inputId    = ns("ontology"),
+                                  label      = "Ontology",
+                                  choices    = c("Biological Process (BP)" = "BP",
+                                                 "Molecular Function (MF)" = "MF",
+                                                 "Cellular Component (CC)" = "CC"),
+                                  selected   = "BP")
+                   ),
+                   
+                   # Panel condicional para anotaciones personalizadas
+                   conditionalPanel(
+                     condition = sprintf("input['%s'] == 'Personalized'", ns("database")),
+                     fluidRow(
+                       column(width = 10,
+                              fileInput(inputId = ns("personalizedAnnotations"), 
+                                        label = "Choose annotation file",
+                                        multiple = FALSE, 
+                                        accept = c(".txt", ".tsv", ".csv"))
+                       ),
+                       column(width = 2,
+                              actionButton(inputId = ns("showPersonalizedInfo"), 
+                                           label = "",
+                                           icon = icon("info-circle", lib = "font-awesome"),
+                                           class = "btn-info"),
+                              
+                              tags$div(
+                                downloadLink(outputId = ns("downloadPersonalizedExample"),
+                                             label = icon("download"),
+                                             style = "margin-left: 4px; font-size: 16px;"),
+                                style = "margin-top: 10px;")
+                       )
+                     )
+                   ),
+                   
+                   # Panel condicional para bases de datos estándar
+                   conditionalPanel(
+                     condition = sprintf("input['%s'] != 'Personalized'", ns("database")),
+                     selectInput(inputId  = ns("organism"),
+                                 label    = "Organism",
+                                 choices  = c("Homo sapiens" = "Hsa",
+                                              "Mus musculus" = "Mmu",
+                                              "Rattus norvegicus" = "Rno"),
+                                 selected = "Hsa"),
+                     
+                     selectInput(inputId  = ns("IDtype"),
+                                 label    = "Gene ID",
+                                 choices  = c("SYMBOL", "ENTREZID", "ENSEMBL"),
+                                 selected = "SYMBOL")
+                   ),
+                   
+                   # Selección del método de metaanálisis
+                   div(selectInput(inputId  = ns("metaAnalysisMethod"),
+                                   label    = "Meta-Analysis Method",
+                                   choices  = c("Fisher"    = "fisher",
+                                                "Stouffer"  = "stouffer",
+                                                "Tippett"   = "tippett",
+                                                "Wilkinson" = "wilkinson"),
+                                   selected = "fisher"),
+                       title = HTML("Combine p-values from multiple studies:\n- Fisher: Sum of log-transformed p-values, sensitive to small p-values.\n- Stouffer: Combines Z-scores, allows weighting.\n- Tippett: Uses the minimum p-value, emphasizes the most significant study.\n- Wilkinson: Generalized form of Tippett, based on order statistics."), 
+                       style = "cursor: help;"),
+                   
+                   # Slider para el umbral de aparición de genes
+                   div(sliderInput(inputId = ns("termThreshold"),
+                                   label   = "Minimum number of datasets",
+                                   value   = 1,
+                                   min     = 1,
+                                   max     = 4,
+                                   step    = 1),
+                       title = HTML(
+                         "Gene Appearance Filter:\n - Require a gene to appear in at least this many lists.\n- E.g., if BRCA1 appears in 2/4 lists and you set this to 3, it will be excluded.\n- Setting to 2 will keep it."),
+                       style = "cursor: help;")
+          ),
+          
+          # Pestaña 2: Visualización de datos
+          tabPanel("Data visualization", br(),
+                   
+                   h5("Table columns"),
+                   
+                   # Checkbox para seleccionar columnas de la tabla
+                   checkboxGroupInput(
+                     inputId  = ns("selectedColumns"),
+                     label    = NULL,
+                     choices  = c("ID", "Description", "pvalue", "p.adjust", 
+                                  "ListCount", "ListNames", "GeneCount", "GeneID"),
+                     selected = c("ID", "Description", "pvalue", "p.adjust", 
+                                  "ListCount", "ListNames", "GeneCount", "GeneID"),
+                     inline   = FALSE),
+                   
+                   tags$hr(style = "margin-top: 10px; margin-bottom: 10px;"),
+                   
+                   h5("Plot"),
+                   
+                   # Controles para la personalización del gráfico
+                   sliderInput(inputId  = ns("nPlotTerms"),
+                               label    = "Number of terms to show",
+                               min      = 1,
+                               max      = 100,
+                               value    = 10),
+                   
+                   selectInput(inputId  = ns("plotLabel"),
+                               label    = "Y-axis label",
+                               choices  = c("ID" = "ID",
+                                            "Description" = "Description",
+                                            "ID + Description" = "Term_Description"),
+                               selected = "Term_Description"),
+                   
+                   selectInput(inputId  = ns("plotType"),
+                               label    = "Plot Type",
+                               choices  = c("Dot Plot" = "dotplot",
+                                            "Bar Plot"  = "barplot"),
+                               selected = "dotplot"),
+                   
+                   colorPickr(inputId   = ns("colorLow"),
+                              label     = "Low color",
+                              selected  = "#0838a0",
+                              opacity   = TRUE),
+                   
+                   colorPickr(inputId   = ns("colorHigh"),
+                              label     = "High color",
+                              selected  = "#2ba915",
+                              opacity   = TRUE),
+                   
+                   sliderInput(inputId  = ns("textSize"),
+                               label    = "Text Size",
+                               min      = 5,
+                               max      = 20,
+                               value    = 12)
+          )
+        ),
+        
+        # Botón para ejecutar el análisis
+        actionButton(inputId = ns("runButton"),
+                     label   = "Run Analysis",
+                     style   = "width: 100%; margin-top: 10px;")
+      ),
+      
+      # Contenedor principal para mostrar los resultados
+      card(
+        uiOutput(ns("resultsTabs"))
+      )
+    )
+  )
+}
+
+
+
+#-------------------------------------------------------------------------------
+
+# R/modules/metaenrichgo/mod_metaEnrichGO.R
+
+mod_metaEnrichGO_server <- function(id) {
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    
+    exampleFiles <- c("./modules/metaenrichgo/example_data/genes1.txt",
+                      "./modules/metaenrichgo/example_data/genes2.txt",
+                      "./modules/metaenrichgo/example_data/genes3.txt",
+                      "./modules/metaenrichgo/example_data/genes4.txt")
+    
+    # --------------------------------------------
+    # 1) Store uploaded or pasted input
+    # --------------------------------------------
+    storedInput <- reactiveVal(NULL)
+    
+    selectedDatabase <- eventReactive(input$runButton, {
+      input$database})
+    
+    observe({
+      req(input$inputMethod)
+      
+      if (input$inputMethod == "files") {
+        if (isTRUE(input$useExampleData)) {
+          storedInput(list(type = "files", paths = exampleFiles, names = basename(exampleFiles)))
+        } else {
+          req(input$files)
+          storedInput(list(type = "files", paths = input$files$datapath, names = input$files$name))}
+        
+      } else if (input$inputMethod == "paste") {
+        req(input$pastedGenes)
+        storedInput(list(type = "paste", text = input$pastedGenes))}})
+    
+    # --------------------------------------------
+    # 2) Read & clean raw gene lists with progress
+    # --------------------------------------------
+    rawGeneLists <- reactive({
+      inputData <- storedInput()
+      req(inputData)
+      
+      withProgress(message = "Loading gene lists...", value = 0, {
+        incProgress(0.2, detail = "Reading input...")
+        raw_lists <- list()
+        
+        if (inputData$type == "files") {
+          for (i in seq_along(inputData$paths)) {
+            fp <- inputData$paths[i]
+            lines <- readLines(fp, warn = FALSE, encoding = "UTF-8")
+            raw_lists[[ inputData$names[i] ]] <- lines}
+        } else {
+          blocks <- strsplit(inputData$text, "###", fixed = TRUE)[[1]]
+          for (i in seq_along(blocks)) {
+            raw_lists[[ paste0("List", i) ]] <- unlist(strsplit(blocks[[i]], "\\s+"))}}
+        
+        incProgress(0.7, detail = "Cleaning gene symbols...")
+        clean_genes <- function(vec) {
+          vec <- trimws(vec)
+          vec <- gsub("///.*|\\\\.*", "", vec)
+          vec[vec != ""]}
+        
+        mapping <- lapply(raw_lists, clean_genes)
+        
+        incProgress(1, detail = "Done.")
+        mapping})})
+    
+    # --------------------------------------------
+    # Helper: compute GeneCount column from GeneID string ("/" or whitespace separated)
+    # --------------------------------------------
+    compute_gene_count <- function(geneid_vec) {
+      vapply(geneid_vec, function(txt) {
+        if (is.na(txt) || txt == "" ) return(0L)
+        genes <- unlist(strsplit(as.character(txt), "[/\\s]+"))
+        genes <- genes[genes != ""]
+        length(unique(genes))
+      }, integer(1))}
+    
+    # --------------------------------------------
+    # totalLists reactive
+    # --------------------------------------------
+    totalLists <- reactive({
+      req(input$inputMethod)
+      if (isTRUE(input$useExampleData)) {
+        4
+      } else if (input$inputMethod == "files" && !is.null(input$files)) {
+        length(input$files$datapath)
+      } else if (input$inputMethod == "paste" &&
+                 !is.null(input$pastedGenes) && nzchar(input$pastedGenes)) {
+        txt <- input$pastedGenes
+        if (grepl("###", txt, fixed = TRUE)) {
+          length(strsplit(txt, "###", fixed = TRUE)[[1]])
+        } else {
+          1}
+      } else {
+        0}})
+    
+    # --------------------------------------------
+    # 3) Results reactiveVal & runContext
+    # --------------------------------------------
+    resultsVal <- reactiveVal(list(included = NULL, excluded = NULL))
+    runContext  <- reactiveVal(NULL)   # store ORA_data + lists for per-file tabs
+    
+    observeEvent(input$runButton, {
+      inputData <- storedInput()
+      req(inputData)
+      
+      n_lists <- totalLists()
+      lists   <- rawGeneLists()
+      genes   <- unique(unlist(lists))
+      
+      if (input$database == "Personalized" && is.null(input$personalizedAnnotations)) {
+        showModal(modalDialog(
+          title = "⚠️ Annotation File Required",
+          "Please upload an annotation file to perform the personalized analysis.",
+          easyClose = TRUE,
+          footer = modalButton("Close")))
+        return()}
+      
+      is_personalized <- (input$database == "Personalized")
+      
+      if (is_personalized) {
+        if (!check_annotation_file_format(input$personalizedAnnotations$datapath, session)) {
+          resultsVal(list(included = NULL, excluded = NULL))
+          return()}}
+      
+      if (is_personalized) {
+        all_cols <- c("Description", "pvalue", "p.adjust", "ListCount", "ListNames", "FeatureCount", "FeatureID")
+        default_selected <- if (n_lists > 1) all_cols else setdiff(all_cols, c("ListCount", "ListNames"))
+        updateSelectInput(session, "plotLabel", choices = c("Description" = "Description"), selected = "Description")
+      } else {
+        all_cols <- c("ID", "Description", "pvalue", "p.adjust", "ListCount", "ListNames", "GeneCount", "GeneID")
+        default_selected <- if (n_lists > 1) all_cols else setdiff(all_cols, c("ListCount", "ListNames"))
+        updateSelectInput(session, "plotLabel", 
+                          choices  = c("ID" = "ID", "Description" = "Description", "ID + Description" = "Term_Description"),
+                          selected = "Term_Description")}
+      
+      updateCheckboxGroupInput(session, "selectedColumns",
+                               choices  = all_cols,
+                               selected = default_selected)
+      
+      # 1) Validaciones de formato
+      if (inputData$type == "files" && !isTRUE(input$useExampleData)) {
+        if (!validate_file_format_metaenrichgo(input, session)) {
+          resultsVal(list(included = NULL, excluded = NULL))
+          return()}}
+      
+      if (inputData$type == "paste") {
+        if (!validate_paste_format(input, session)) {
+          resultsVal(list(included = NULL, excluded = NULL))
+          return()}}
+      
+      if (input$database != "Personalized") {
+        if (!validate_gene_ids(genes, input$IDtype, session)) {
+          resultsVal(list(included = NULL, excluded = NULL))
+          return()}
+        
+        if (!validate_organism(genes, input$organism, input$IDtype, session)) {
+          resultsVal(list(included = NULL, excluded = NULL))
+          return()}}
+      
+      # 3) ORA por lista (siempre)
+      withProgress(message = "Performing ORA...", value = 0, {
+        ORA_data <- switch(input$database,
+                           GO       = lapply(lists, ORA_GO,
+                                             organism = input$organism,
+                                             ontology = input$ontology,
+                                             pvalue   = 1,
+                                             ID_type  = input$IDtype),
+                           KEGG     = lapply(lists, ORA_KEGG,
+                                             organism = input$organism,
+                                             pvalue   = 1,
+                                             ID_type  = input$IDtype),
+                           Reactome = lapply(lists, ORA_REACTOME,
+                                             organism = input$organism,
+                                             pvalue   = 1,
+                                             ID_type  = input$IDtype),
+                           Personalized = lapply(lists, ORA_PERSONALIZED,
+                                                 annotation_file = input$personalizedAnnotations$datapath))
+        
+        ORA_data <- lapply(ORA_data, function(df) {
+          
+          if (input$database == "Personalized") {
+            # Caso Personalizado (df tiene Description, FeatureID, FeatureCount)
+            
+            # 1. Creamos 'ID' (para el meta-análisis) a partir de 'Description'
+            df$ID        <- df$Description 
+            
+            # 2. Creamos nombres 'Gene' estándar a partir de 'Feature'
+            df$GeneID    <- df$FeatureID
+            df$GeneCount <- df$FeatureCount
+            
+            # 3. ¡IMPORTANTE! Eliminamos los 'Feature' originales
+            #    para evitar duplicados más adelante.
+            df$FeatureID   <- NULL
+            df$FeatureCount <- NULL
+            
+          } else {
+            # Caso GO/KEGG/Reactome (formato estándar)
+            if ("geneID" %in% colnames(df) && !("GeneID" %in% colnames(df)))
+              colnames(df)[colnames(df) == "geneID"] <- "GeneID"
+            if (!("GeneID" %in% colnames(df))) df$GeneID <- ""
+            if (!("GeneCount" %in% colnames(df))) 
+              df$GeneCount <- compute_gene_count(df$GeneID)
+          }
+          
+          # Asegurar columnas comunes
+          if (!("pvalue" %in% colnames(df))) df$pvalue <- NA_real_
+          if (!("Description" %in% colnames(df))) df$Description <- NA_character_
+          if (!("ID" %in% colnames(df))) df$ID <- NA_character_
+          
+          # Añadir p.adjust si falta
+          if (!("p.adjust" %in% colnames(df))) 
+            df$p.adjust <- p.adjust(df$pvalue, method = "BH")
+          
+          return(df)
+        })
+        incProgress(1, detail = "ORA Completed")})
+      
+      if (is.null(names(lists)) || any(names(lists) == "")) {
+        names(ORA_data) <- paste0("List", seq_along(ORA_data))
+      } else {
+        names(ORA_data) <- names(lists)}
+      runContext(list(ORA_data = ORA_data, lists = lists))
+      
+      # 4) Si hay >1 lista: meta-análisis → generar tabla combinada
+      if (n_lists > 1) {
+        withProgress(message = "Performing Meta-Analysis...", value = 0, {
+          termLists     <- lapply(ORA_data, `[[`, "ID")
+          termFrequency <- table(unlist(termLists))
+          totalFiles    <- n_lists
+          minFreq       <- input$termThreshold
+          commonTerms   <- names(termFrequency)[termFrequency >= minFreq]
+          totalTerms    <- length(commonTerms)
+          
+          METAresults <- data.frame(
+            ID = character(0), Description = character(0),
+            pvalue = numeric(0), p.adjust = numeric(0),
+            ListCount = character(0), ListNames = character(0),
+            GeneCount = integer(0), GeneID = character(0),
+            stringsAsFactors = FALSE)
+          
+          for (i in seq_along(commonTerms)) {
+            term <- commonTerms[i]
+            
+            pvs <- na.omit(sapply(ORA_data, function(res) {
+              td <- res[res$ID == term, ]
+              if (nrow(td)) td$pvalue else NA}))
+            
+            combP <- switch(input$metaAnalysisMethod,
+                            fisher    = fisher_combined_pvalue(pvs),
+                            stouffer  = stouffer_combined_pvalue(pvs),
+                            tippett   = tippett_combined_pvalue(pvs),
+                            wilkinson = wilkinson_combined_pvalue(pvs))
+            
+            desc <- NA_character_
+            for (res in ORA_data) {
+              td <- res[res$ID == term, ]
+              if (nrow(td)) { desc <- td$Description[1]; break }}
+            
+            genesIn <- unique(unlist(lapply(ORA_data, function(res) {
+              td <- res[res$ID == term, ]
+              if (nrow(td)) strsplit(as.character(td$GeneID), "[/\\s]+")[[1]] else character(0)})))
+            genesIn <- genesIn[genesIn != ""]
+            geneStr <- paste(genesIn, collapse = "/ ")
+            filesWith <- names(ORA_data)[sapply(ORA_data, function(res) term %in% res$ID)]
+            
+            METAresults <- rbind(METAresults, data.frame(
+              ID = term,
+              Description = desc,
+              pvalue = combP,
+              p.adjust = NA_real_,
+              ListCount = paste0(length(filesWith), "/", totalFiles),
+              ListNames = paste(filesWith, collapse = ", "),
+              GeneCount = length(genesIn),
+              GeneID = geneStr,
+              stringsAsFactors = FALSE))
+            
+            incProgress(1 / max(totalTerms, 1), detail = paste("Term", i, "of", totalTerms))}
+          
+          METAresults$p.adjust <- p.adjust(METAresults$pvalue, method = "BH")
+          METAresults <- METAresults[order(METAresults$p.adjust), ]
+          
+          allT <- names(termFrequency)
+          lowT <- setdiff(allT, commonTerms)
+          EXCres <- data.frame(
+            ID = character(0), Description = character(0),
+            ListCount = character(0), ListNames = character(0),
+            GeneCount = integer(0), GeneID = character(0),
+            stringsAsFactors = FALSE)
+          
+          for (term in lowT) {
+            desc <- NA_character_
+            for (res in ORA_data) {
+              td <- res[res$ID == term, ]
+              if (nrow(td)) { desc <- td$Description[1]; break }}
+            genesIn <- unique(unlist(lapply(ORA_data, function(res) {
+              td <- res[res$ID == term, ]
+              if (nrow(td)) strsplit(as.character(td$GeneID), "[/\\s]+")[[1]] else character(0)
+            })))
+            genesIn <- genesIn[genesIn != ""]
+            filesWith <- names(ORA_data)[sapply(ORA_data, function(res) term %in% res$ID)]
+            EXCres <- rbind(EXCres, data.frame(
+              ID = term,
+              Description = desc,
+              ListCount = paste0(length(filesWith), "/", totalFiles),
+              ListNames = paste(filesWith, collapse = ", "),
+              GeneCount = length(genesIn),
+              GeneID = paste(genesIn, collapse = "/ "),
+              stringsAsFactors = FALSE))}
+          
+          if (is_personalized) {
+            colnames(METAresults)[colnames(METAresults) == "GeneCount"] <- "FeatureCount"
+            colnames(METAresults)[colnames(METAresults) == "GeneID"] <- "FeatureID"
+            METAresults$ID <- NULL
+            
+            colnames(EXCres)[colnames(EXCres) == "GeneCount"] <- "FeatureCount"
+            colnames(EXCres)[colnames(EXCres) == "GeneID"] <- "FeatureID"
+            EXCres$ID <- NULL
+          }
+          
+          if (!check_empty_results(METAresults, session)) {
+            resultsVal(list(included = NULL, excluded = NULL))
+            return()}
+          
+          resultsVal(list(included = METAresults, excluded = EXCres))})
+      } else { 
+        
+        df <- ORA_data[[1]]
+        if ("geneID" %in% colnames(df) && !("GeneID" %in% colnames(df)))
+          colnames(df)[colnames(df) == "geneID"] <- "GeneID"
+        if (!("p.adjust" %in% colnames(df))) df$p.adjust <- p.adjust(df$pvalue, method = "BH")
+        if (!("GeneCount" %in% colnames(df))) df$GeneCount <- compute_gene_count(df$GeneID)
+        
+        list_name <- if (!is.null(names(lists)) && length(names(lists)) >= 1) names(lists)[1] else "List1"
+        df$ListCount <- "1/1"
+        df$ListNames <- list_name
+        
+        if (is_personalized) {
+          # df (que viene de ORA_list) SÓLO tiene GeneCount y GeneID.
+          # Los renombramos a FeatureCount y FeatureID.
+          # Como los 'Feature' originales fueron eliminados en el Paso 2,
+          # no se crea ningún duplicado.
+          colnames(df)[colnames(df) == "GeneCount"] <- "FeatureCount"
+          colnames(df)[colnames(df) == "GeneID"]    <- "FeatureID"
+          df$ID <- NULL 
+        }
+        
+        expected <- all_cols 
+        missing  <- setdiff(expected, colnames(df))
+        if (length(missing) > 0) for (cname in missing) df[[cname]] <- NA
+        df <- df[, intersect(expected, colnames(df)), drop = FALSE]
+        
+        if (!check_empty_results(df, session)) {
+          resultsVal(list(included = NULL, excluded = NULL))
+          return()}
+        
+        exc_cols <- if(is_personalized) {
+          c("Description", "ListCount", "ListNames", "FeatureCount", "FeatureID")
+        } else {
+          c("ID", "Description", "ListCount", "ListNames", "GeneCount", "GeneID")
+        }
+        EXC_empty <- df[0, exc_cols, drop = FALSE]
+        resultsVal(list(included = df, excluded = EXC_empty))}})
+    
+    
+    #-----------------------------------------------------------------------
+    # Generación dinámica de pestañas (Combined + 1 pestaña por archivo)
+    #-----------------------------------------------------------------------
+    output$resultsTabs <- renderUI({
+      rc <- runContext()
+      req(rc)
+      ORA_list <- rc$ORA_data
+      list_names <- names(ORA_list)
+      if (is.null(list_names) || length(list_names) == 0) {
+        list_names <- paste0("List", seq_along(ORA_list))
+      }
+      
+      tabs <- list()
+      
+      # --- PESTAÑA COMBINED ---
+      if (length(list_names) > 1) {
+        tabs[[length(tabs) + 1]] <- tabPanel(
+          "Combined", br(),
+          shinycssloaders::withSpinner(DTOutput(ns("resultsTable"))), br(),
+          uiOutput(ns("downloadButtonUI")), br(), 
+          shinyjs::hidden(
+            div(id = ns("excludedSection"),
+                h5("Excluded terms (below frequency threshold):"),
+                DTOutput(ns("excludedTable")))
+          ), br(),
+          
+          # --- CAMBIO AQUÍ: Usamos uiOutput en lugar de plotlyOutput directo ---
+          # Esto permite inyectar el gráfico con altura calculada desde el servidor
+          uiOutput(ns("resultsDotplotContainer")), 
+          
+          br(),
+          uiOutput(ns("downloadPlotUI"))
+        )
+      }
+      
+      # --- PESTAÑAS INDIVIDUALES ---
+      for (nm in list_names) {
+        safe <- gsub("[^[:alnum:]_]", "_", nm)
+        
+        tabs[[length(tabs) + 1]] <- tabPanel(
+          title = nm, br(),
+          shinycssloaders::withSpinner(DTOutput(ns(paste0("resultsTable_ind_", safe)))), br(),
+          fluidRow(
+            column(6, downloadButton(ns(paste0("downloadTableCSV_ind_", safe)), "Download CSV", style = "width:100%")),
+            column(6, downloadButton(ns(paste0("downloadTableTSV_ind_", safe)), "Download TSV", style = "width:100%"))
+          ), br(),
+          
+          # --- CAMBIO AQUÍ: Contenedor dinámico para el plot individual ---
+          uiOutput(ns(paste0("resultsDotplotContainer_ind_", safe))),
+          
+          br(),
+          uiOutput(ns(paste0("downloadPlotUI_ind_", safe)))
+        )
+      }
+      
+      do.call(tabsetPanel, c(id = ns("dynamicResults"), tabs))
+    })
+    
+    # Renderizador del contenedor del gráfico COMBINADO con altura dinámica
+    output$resultsDotplotContainer <- renderUI({
+      req(plot_obj())
+      
+      # Cálculo de altura: Mínimo 600px, o 25px por cada término seleccionado
+      plot_height <- max(600, input$nPlotTerms * 25)
+      
+      shinycssloaders::withSpinner(
+        plotlyOutput(ns("resultsDotplot"), height = paste0(plot_height, "px"))
+      )
+    })
+    
+    #-----------------------------------------------------------------------
+    # Crear outputs dinámicos por cada archivo usando runContext()
+    #-----------------------------------------------------------------------
+    observeEvent(runContext(), {
+      rc <- runContext()
+      req(rc)
+      ORA_list <- rc$ORA_data
+      list_names <- names(ORA_list)
+      if (is.null(list_names) || length(list_names) == 0) {
+        list_names <- paste0("List", seq_along(ORA_list))
+        names(ORA_list) <- list_names}
+      
+      db_type <- selectedDatabase()
+      is_personalized <- !is.null(db_type) && db_type == "Personalized"
+      
+      if (is_personalized) {
+        colTooltips <- list(
+          Description = HTML("Descriptive name for the user-defined category."),
+          pvalue = HTML("p-value from the Over-Representation Analysis."),
+          p.adjust = HTML("Adjusted p-value using Benjamini–Hochberg."),
+          FeatureCount = HTML("Number of features from your list mapped to this term."),
+          FeatureID = HTML("List of feature IDs from your list mapped to this term."))
+      } else {
+        colTooltips <- list(
+          ID = "Stable identifier of the enriched term or pathway.",
+          Description = "Descriptive name conveying the biological role of the term.",
+          pvalue = "p-value from the Over-Representation Analysis.",
+          p.adjust = "Adjusted p-value using Benjamini–Hochberg.",
+          GeneCount = "Number of genes from your list mapped to this term.",
+          GeneID = "List of gene IDs from your list that map to this term.")}
+      
+      compute_gene_count <- function(vec) {
+        vapply(vec, function(txt) {
+          if (is.na(txt) || txt == "") return(0L)
+          genes <- unlist(strsplit(as.character(txt), "[/\\s]+"))
+          genes <- genes[genes != ""]
+          length(unique(genes))
+        }, integer(1))}
+      
+      format_geneid_html <- function(vec) {
+        vapply(vec, function(txt) {
+          if (is.na(txt) || txt == "") return("")
+          genes <- unlist(strsplit(as.character(txt), "[/\\s]+"))
+          genes <- genes[genes != ""]
+          full_text <- paste(htmltools::htmlEscape(genes), collapse = ", ")
+          display_text <- if (nchar(full_text) > 100) paste0(substr(full_text, 1, 100), "...") else full_text
+          sprintf('<span style="display:none;">%s</span><span title="%s">%s</span>', full_text, full_text, display_text)
+        }, character(1))
+      }
+      
+      for (nm in list_names) {
+        safe <- gsub("[^[:alnum:]_]", "_", nm)
+        df <- ORA_list[[nm]]
+        
+        if (!("GeneID" %in% colnames(df))) df$GeneID <- ""
+        if (!("GeneCount" %in% colnames(df))) df$GeneCount <- compute_gene_count(df$GeneID)
+        if (!("p.adjust" %in% colnames(df))) df$p.adjust <- p.adjust(df$pvalue, method = "BH")
+        
+        if (is_personalized) {
+          colnames(df)[colnames(df) == "GeneCount"] <- "FeatureCount"
+          colnames(df)[colnames(df) == "GeneID"] <- "FeatureID"
+          df$ID <- NULL 
+        }
+        
+        container_id <- paste0("resultsDotplotContainer_ind_", safe)        
+        table_id <- paste0("resultsTable_ind_", safe)
+        plot_id  <- paste0("resultsDotplot_ind_", safe)
+        csv_id   <- paste0("downloadTableCSV_ind_", safe)
+        tsv_id   <- paste0("downloadTableTSV_ind_", safe)
+        html_id  <- paste0("downloadPlotHTML_ind_", safe)
+        png_id   <- paste0("downloadPlotPNG_ind_", safe)
+        jpg_id   <- paste0("downloadPlotJPG_ind_", safe)
+        dropdown_ui_id <- paste0("downloadPlotUI_ind_", safe)
+        
+        local({
+          df_local  <- df
+          nm_local  <- nm
+          tid <- table_id
+          pid <- plot_id
+          cid <- csv_id
+          cid_ui <- container_id
+          sid <- tsv_id
+          hid <- html_id
+          pid2 <- png_id
+          jid <- jpg_id
+          drop_ui <- dropdown_ui_id
+          
+          # --- Tabla individual con mismo formato que Combined ---
+          output[[tid]] <- DT::renderDataTable({
+            req(df_local)
+            allowed_cols <- intersect(input$selectedColumns, colnames(df_local))
+            table_data <- df_local[, allowed_cols, drop = FALSE]
+            
+            if (is_personalized && "FeatureID" %in% colnames(table_data)) {
+              table_data$FeatureID <- format_geneid_html(table_data$FeatureID)
+            } else if ("GeneID" %in% colnames(table_data)) {
+              table_data$GeneID <- format_geneid_html(table_data$GeneID)
+            }
+            
+            DT::datatable(
+              table_data,
+              rownames = FALSE,
+              selection = "multiple",
+              filter = "top",
+              escape = FALSE,
+              options = list(
+                pageLength = 10,
+                scrollX = TRUE,
+                scrollY = paste0(input$resultsTable_length * 40, "px"),
+                autoWidth = FALSE,
+                columnDefs = list(list(
+                  targets = "_all",
+                  className = "dt-wrap",
+                  width = paste0(round(100 / max(1, ncol(table_data))), "%")
+                )),
+                headerCallback = htmlwidgets::JS(
+                  "function(thead, data, start, end, display) {",
+                  "var tooltips =", jsonlite::toJSON(colTooltips), ";",
+                  "$('th', thead).each(function() {",
+                  "var txt = $(this).text().trim();",
+                  "if (tooltips[txt]) {",
+                  "var label = $('<span>').addClass('dt-header-label').text(txt);",
+                  "var icon = $('<span>?</span>').addClass('dt-info-icon').attr('title', tooltips[txt]);",
+                  "$(this).empty().append($('<div>').addClass('dt-header-with-icon').append(label).append(icon));",
+                  "}",
+                  "});",
+                  "}"
+                )
+              )
+            ) %>% formatSignif(columns = intersect(c("pvalue","p.adjust"),
+                                                   colnames(table_data)), digits = 4)
+          })
+          
+          # --- Datos filtrados de la tabla individual ---
+          filtered_data_ind <- reactive({
+            rows <- input[[paste0(tid, "_rows_all")]]
+            if (is.null(rows)) rows <- seq_len(nrow(df_local))
+            df_local[rows, , drop = FALSE]
+          })
+          
+          # --- Plot individual con mismo estilo que Combined ---
+          plot_obj_ind <- reactive({
+            req(filtered_data_ind())
+            finalResultsFiltered <- filtered_data_ind() %>%
+              arrange(p.adjust) %>%
+              head(input$nPlotTerms)
+            
+            text_size <- input$textSize
+            
+            if (is_personalized) {
+              finalResultsFiltered$label_y <- finalResultsFiltered$Description
+              p <- ggplot(finalResultsFiltered,
+                          aes(x = FeatureCount,
+                              y = reorder(label_y, -p.adjust),
+                              text = paste0(
+                                "Description: ", Description,
+                                "<br>FeatureCount: ", FeatureCount,
+                                "<br>p.adjust: ", signif(p.adjust, 3)
+                              )))
+            } else {
+              finalResultsFiltered$label_y <- switch(input$plotLabel,
+                                                     "ID" = finalResultsFiltered$ID,
+                                                     "Description" = finalResultsFiltered$Description,
+                                                     "Term_Description" =
+                                                       paste(finalResultsFiltered$ID,
+                                                             finalResultsFiltered$Description, sep = " - "))
+              
+              p <- ggplot(finalResultsFiltered,
+                          aes(x = GeneCount,
+                              y = reorder(label_y, -p.adjust),
+                              text = paste0(
+                                "ID: ", ID,
+                                "<br>Description: ", Description,
+                                "<br>GeneCount: ", GeneCount,
+                                "<br>p.adjust: ", signif(p.adjust, 3)
+                              )))}
+            
+            if (input$plotType == "dotplot") {
+              if (is_personalized) {
+                p <- p + aes(size = FeatureCount, color = p.adjust) +
+                  labs(x = "FeatureCount", y = NULL, color = "p.adjust", title = paste("Dotplot -", nm_local))
+              } else {
+                p <- p + aes(size = GeneCount, color = p.adjust) +
+                  labs(x = "GeneCount", y = NULL, color = "p.adjust", title = paste("Dotplot -", nm_local))}
+              p <- p + geom_point() + scale_color_gradient(low = input$colorLow, high = input$colorHigh)
+            } else { # Barplot
+              if (is_personalized) {
+                p <- p + aes(fill = p.adjust) +
+                  labs(x = "FeatureCount", y = NULL, fill = "p.adjust", title = paste("Barplot -", nm_local))
+              } else {
+                p <- p + aes(fill = p.adjust) +
+                  labs(x = "GeneCount", y = NULL, fill = "p.adjust", title = paste("Barplot -", nm_local))}
+              p <- p + geom_bar(stat = "identity") + scale_fill_gradient(low = input$colorLow, high = input$colorHigh)}
+            
+            p + theme_minimal() +
+              theme(axis.text.y  = element_text(size = text_size),
+                    axis.text.x  = element_text(size = text_size),
+                    axis.title.x = element_text(size = text_size + 1),
+                    axis.title.y = element_text(size = text_size + 1),
+                    legend.text  = element_text(size = text_size - 3),
+                    legend.title = element_text(size = text_size, margin = margin(b = 20)),
+                    plot.title   = element_text(size = text_size + 2,
+                                                face = "bold", hjust = 0.5))})
+          
+          output[[cid_ui]] <- renderUI({
+            req(plot_obj_ind())
+            
+            plot_height <- max(600, input$nPlotTerms * 25)
+            shinycssloaders::withSpinner(
+              plotlyOutput(ns(pid), height = paste0(plot_height, "px"))
+            )
+          })
+          
+          output[[pid]] <- renderPlotly({
+            req(plot_obj_ind())
+            ggplotly(plot_obj_ind(), tooltip = "text")})
+          
+          # --- Descargas de tabla individual (USANDO cid, sid, tid) ---
+          output[[cid]] <- downloadHandler(
+            filename = function()
+              paste0(gsub("[^A-Za-z0-9\\-]", "_", nm_local), "_", Sys.Date(), ".csv"),
+            content = function(file) {
+              rows_all <- input[[paste0(tid, "_rows_all")]]
+              if (is.null(rows_all)) rows_all <- seq_len(nrow(df_local))
+              cols <- intersect(input$selectedColumns, colnames(df_local))
+              if (length(cols) == 0) cols <- colnames(df_local)
+              write.csv(df_local[as.numeric(rows_all), cols, drop = FALSE],
+                        file, row.names = FALSE)})
+          
+          output[[sid]] <- downloadHandler(
+            filename = function()
+              paste0(gsub("[^A-Za-z0-9\\-]", "_", nm_local), "_", Sys.Date(), ".tsv"),
+            content = function(file) {
+              rows_all <- input[[paste0(tid, "_rows_all")]]
+              if (is.null(rows_all)) rows_all <- seq_len(nrow(df_local))
+              cols <- intersect(input$selectedColumns, colnames(df_local))
+              if (length(cols) == 0) cols <- colnames(df_local)
+              write.table(df_local[as.numeric(rows_all), cols, drop = FALSE],
+                          file, row.names = FALSE, sep = "\t")})
+          
+          output[[drop_ui]] <- renderUI({
+            shinyWidgets::dropdownButton(
+              label = "Download Plot",
+              icon = icon("download"),
+              circle = FALSE,
+              status = "secondary",
+              width = "200px",
+              tags$h5("Select format"),
+              downloadButton(ns(hid), "HTML", class = "btn-block"),
+              downloadButton(ns(pid2), "PNG", class = "btn-block"),
+              downloadButton(ns(jid),  "JPG", class = "btn-block")
+            )
+          })
+          
+          # --- Descarga HTML Individual (Solución Robusta) ---
+          output[[hid]] <- downloadHandler(
+            filename = function()
+              paste0("MetaEnrichGO_plot_", gsub("[^A-Za-z0-9\\-]", "_", nm_local),
+                     "_", Sys.Date(), ".html"),
+            content = function(file) {
+              # 1. Calcular altura en píxeles
+              plot_h_px <- max(600, input$nPlotTerms * 25)
+              
+              # 2. Crear el widget plotly
+              # Usamos width/height aquí para el objeto interno
+              plt <- ggplotly(plot_obj_ind(), 
+                              height = plot_h_px, 
+                              width = 1200, 
+                              tooltip = "text")
+              
+              # 3. INYECCIÓN DE CSS: Forzamos la altura del contenedor
+              # Esto evita que el navegador colapse el gráfico
+              plt <- htmlwidgets::prependContent(plt, tags$style(HTML(paste0(
+                ".plotly { height: ", plot_h_px, "px !important; width: 1200px !important; }"
+              ))))
+              
+              # 4. Guardar
+              htmlwidgets::saveWidget(plt, file, selfcontained = TRUE)
+            })
+          output[[pid2]] <- downloadHandler(
+            filename = function()
+              paste0("MetaEnrichGO_plot_", gsub("[^A-Za-z0-9\\-]", "_", nm_local),
+                     "_", Sys.Date(), ".png"),
+            content = function(file) {
+              # Cálculo de altura dinámica en pulgadas
+              # Base mínima de 8 pulgadas o 0.35 pulgadas por término
+              plot_h_in <- max(8, input$nPlotTerms * 0.35)
+              
+              ggsave(file, plot = plot_obj_ind(),
+                     device = "png", width = 12.5, height = plot_h_in,
+                     units = "in", dpi = 96)
+            })
+          
+          output[[jid]] <- downloadHandler(
+            filename = function()
+              paste0("MetaEnrichGO_plot_", gsub("[^A-Za-z0-9\\-]", "_", nm_local),
+                     "_", Sys.Date(), ".jpg"),
+            content = function(file) {
+              # Misma lógica de altura
+              plot_h_in <- max(8, input$nPlotTerms * 0.35)
+              
+              ggsave(file, plot = plot_obj_ind(),
+                     device = "jpeg", width = 12.5, height = plot_h_in,
+                     units = "in", dpi = 96)
+            }
+          )
+        }) 
+      } 
+    })
+    
+    
+    
+    
+    #-----------------------------------------------------------------------
+    # Data representation (COMBINED) - mantenemos tus outputs previos
+    #-----------------------------------------------------------------------
+    output$resultsTable <- DT::renderDataTable({
+      res <- resultsVal()$included
+      req(res)
+      req(input$selectedColumns)
+      db_type <- selectedDatabase()
+      is_personalized <- !is.null(db_type) && db_type == "Personalized"
+      
+      allowed_cols <- intersect(input$selectedColumns, colnames(res))
+      table_data <- res[, allowed_cols, drop = FALSE]
+      
+      target_column <- NULL
+      
+      # Check for "GeneID" first, then "FeatureID"
+      if ("GeneID" %in% colnames(table_data)) {
+        target_column <- "GeneID"
+      } else if ("FeatureID" %in% colnames(table_data)) {
+        target_column <- "FeatureID"
+      }
+      
+      if (!is.null(target_column)) {
+        table_data[[target_column]] <- vapply(table_data[[target_column]], function(txt) {
+          if (is.na(txt) || txt == "") return("")
+          genes <- unlist(strsplit(as.character(txt), "[/\\s]+"))
+          genes <- genes[genes != ""]
+          esc_genes <- htmltools::htmlEscape(genes)
+          full_text <- paste(esc_genes, collapse = ", ")
+          display_text <- if (nchar(full_text) > 100) paste0(substr(full_text, 1, 100), "...") else full_text
+          sprintf('<span style="display:none;">%s</span><span title="%s">%s</span>',
+                  full_text, full_text, display_text)
+        }, character(1))
+      }
+      
+      if (is_personalized) {
+        colTooltips <- list(
+          Description = HTML("Descriptive name for the user-defined category."),
+          pvalue = HTML("Combined p-value from ORA."),
+          p.adjust = HTML("Adjusted p-value via Benjamini–Hochberg."),
+          ListCount = HTML("Number of input lists that contributed features to this term."),
+          ListNames = HTML("Names of the input lists that contributed features."),
+          FeatureCount = HTML("Total number of unique features from your input mapped to this term."),
+          FeatureID = HTML("List of feature IDs from your input mapped to this term."))
+      } else {
+        colTooltips <- list(
+          ID = HTML("Stable identifier of the enriched term or pathway."),
+          Description = HTML("Descriptive name conveying the biological role of the term."),
+          pvalue = HTML("Combined p-value from ORA."),
+          p.adjust = HTML("Adjusted p-value via Benjamini–Hochberg."),
+          ListCount = HTML("Number of input lists that contributed genes to this term."),
+          ListNames = HTML("Names of the input lists that contributed genes."),
+          GeneCount = HTML("Total number of unique genes from your input mapped to this term."),
+          GeneID = HTML("List of gene IDs from your input mapped to this term."))
+      }
+      
+      num_rows <- input$resultsTable_length
+      table_h  <- paste0(num_rows * 40, "px")
+      
+      DT::datatable(
+        table_data,
+        rownames  = FALSE,
+        selection = "multiple",
+        filter    = "top",
+        escape    = FALSE,
+        options   = list(
+          pageLength = 10,
+          scrollX    = TRUE,
+          scrollY    = table_h,
+          autoWidth  = FALSE,
+          columnDefs = list(list(
+            targets = "_all",
+            className = "dt-wrap",
+            width = paste0(round(100 / max(1, ncol(table_data))), "%")
+          )),
+          headerCallback = htmlwidgets::JS(
+            "function(thead, data, start, end, display) {",
+            "  var tooltips =", jsonlite::toJSON(colTooltips), ";",
+            "  $('th', thead).each(function() {",
+            "    var txt = $(this).text().trim();",
+            "    if (tooltips[txt]) {",
+            "      var label = $('<span>').addClass('dt-header-label').text(txt);",
+            "      var icon  = $('<span>?</span>').addClass('dt-info-icon').attr('title', tooltips[txt]);",
+            "      $(this).empty().append($('<div>').addClass('dt-header-with-icon').append(label).append(icon));",
+            "    }",
+            "  });",
+            "}"))) %>% formatSignif(columns = intersect(c("pvalue", "p.adjust"), colnames(table_data)), digits = 4)})
+    
+    # Secondary (excluded) table
+    output$excludedTable <- DT::renderDataTable({
+      res <- resultsVal()$included
+      req(res)
+      req(input$selectedColumns)
+      exc <- resultsVal()$excluded
+      
+      cols_exc    <- c("ID", "Description", "ListCount", "ListNames", "GeneCount", "GeneID")
+      table_data  <- exc[, cols_exc, drop = FALSE]
+      num_rows    <- input$excludedTable_length
+      table_h     <- paste0(num_rows * 40, "px")
+      
+      datatable(
+        table_data,
+        rownames      = FALSE,
+        selection     = "multiple",
+        filter        = "top",
+        options       = list(
+          pageLength  = 5,
+          scrollX     = TRUE,
+          scrollY     = table_h,
+          autoWidth   = FALSE,
+          columnDefs  = list(list(
+            targets   = "_all",
+            className = "dt-wrap",
+            width     = paste0(round(100 / length(cols_exc)), "%"))))) %>%
+        formatSignif(
+          columns = intersect(c("pvalue", "p.adjust"), colnames(table_data)),
+          digits  = 4)})
+    
+    output$downloadButtonUI <- renderUI({
+      req(resultsVal()$included)
+      fluidRow(
+        column(5, downloadButton(ns("downloadTableCSV"), "Download CSV", style = "width:100%")),
+        column(5, downloadButton(ns("downloadTableTSV"), "Download TSV", style = "width:100%")),
+        column(1, actionButton(ns("toggleExcluded"),
+                               label = NULL,
+                               icon = icon("eye"),
+                               style = "width:100%",
+                               title = "Show/hide excluded terms")),
+        column(1, downloadButton(ns("downloadExcludedTermsList"),
+                                 label = NULL,
+                                 icon = icon("download"),
+                                 style = "width:100%",
+                                 title = "Download excluded terms list (.txt)")))
+    })
+    
+    observeEvent(input$toggleExcluded, {
+      shinyjs::toggle(id = "excludedSection", anim = TRUE, animType = "slide", time = 0.5)})
+    
+    output$downloadTableCSV <- downloadHandler(
+      filename = function() paste0("MetaEnrichGO_results_", Sys.Date(), ".csv"),
+      content = function(file) {
+        req(resultsVal(), input$selectedColumns, input$resultsTable_rows_all)
+        data <- resultsVal()$included
+        cols <- intersect(input$selectedColumns, colnames(data))
+        filtered_data <- data[input$resultsTable_rows_all, cols, drop = FALSE]
+        write.csv(filtered_data, file, row.names = FALSE)})
+    
+    output$downloadTableTSV <- downloadHandler(
+      filename = function() paste0("MetaEnrichGO_results_", Sys.Date(), ".tsv"),
+      content = function(file) {
+        req(resultsVal(), input$selectedColumns, input$resultsTable_rows_all)
+        data <- resultsVal()$included
+        cols <- intersect(input$selectedColumns, colnames(data))
+        filtered_data <- data[input$resultsTable_rows_all, cols, drop = FALSE]
+        write.table(filtered_data, file, row.names = FALSE, sep = "\t")})
+    
+    output$downloadExcludedTermsList <- downloadHandler(
+      filename = function() paste0("Excluded_MetaEnrichGO_", Sys.Date(), ".tsv"),
+      content = function(file) {
+        req(resultsVal())
+        exc <- resultsVal()$excluded
+        write.table(exc, file, sep = "\t", row.names = FALSE, quote = FALSE)})
+    
+    filtered_data <- reactive({
+      req(resultsVal())
+      if (!is.null(input$resultsTable_rows_all) &&
+          length(input$resultsTable_rows_all) > 0) {
+        resultsVal()$included[as.numeric(input$resultsTable_rows_all), ]
+      } else {
+        resultsVal()$included}})
+    
+    # plot creation
+    plot_obj <- reactive({
+      req(filtered_data())
+      finalResultsFiltered <- filtered_data() %>%
+        arrange(p.adjust) %>%
+        head(input$nPlotTerms)
+      
+      db_type <- selectedDatabase()
+      is_personalized <- !is.null(db_type) && db_type == "Personalized"
+      
+      text_size <- input$textSize
+      
+      if (is_personalized) {
+        finalResultsFiltered$label_y <- finalResultsFiltered$Description
+        
+        p <- ggplot(finalResultsFiltered,
+                    aes(x = FeatureCount,
+                        y = reorder(label_y, -p.adjust),
+                        text = paste0(
+                          "Description: ", Description,
+                          "<br>FeatureCount: ", FeatureCount,
+                          "<br>p.adjust: ", signif(p.adjust, 3)
+                        )))
+      } else {
+        finalResultsFiltered$label_y <- switch(
+          input$plotLabel,
+          "ID"               = finalResultsFiltered$ID,
+          "Description"      = finalResultsFiltered$Description,
+          "Term_Description" = paste(finalResultsFiltered$ID, finalResultsFiltered$Description, sep = " - "))
+        
+        p <- ggplot(finalResultsFiltered,
+                    aes(x = GeneCount,
+                        y = reorder(label_y, -p.adjust),
+                        text = paste0(
+                          "ID: ", ID,
+                          "<br>Description: ", Description,
+                          "<br>GeneCount: ", GeneCount,
+                          "<br>p.adjust: ", signif(p.adjust, 3)
+                        )))}
+      
+      if (input$plotType == "dotplot") {
+        if (is_personalized) {
+          p <- p + aes(size = FeatureCount, color = p.adjust) +
+            labs(x = "FeatureCount", y = NULL, color = "p.adjust", title = "Dotplot of the Enrichment Analysis")
+        } else {
+          p <- p + aes(size = GeneCount, color = p.adjust) +
+            labs(x = "GeneCount", y = NULL, color = "p.adjust", title = "Dotplot of the Enrichment Analysis")
+        }
+        p <- p + geom_point() + scale_color_gradient(low = input$colorLow, high = input$colorHigh)
+      } else { # Barplot
+        if (is_personalized) {
+          p <- p + aes(fill = p.adjust) +
+            labs(x = "FeatureCount", y = NULL, fill = "p.adjust", title = "Barplot of the Enrichment Analysis")
+        } else {
+          p <- p + aes(fill = p.adjust) +
+            labs(x = "GeneCount", y = NULL, fill = "p.adjust", title = "Barplot of the Enrichment Analysis")
+        }
+        p <- p + geom_bar(stat = "identity") + scale_fill_gradient(low = input$colorLow, high = input$colorHigh)
+      }
+      
+      p <- p + theme_minimal() +
+        theme(axis.text.y  = element_text(size = text_size),
+              axis.text.x  = element_text(size = text_size),
+              axis.title.x = element_text(size = text_size + 1),
+              axis.title.y = element_text(size = text_size + 1),
+              legend.text  = element_text(size = text_size - 3),
+              legend.title = element_text(size = text_size, margin = margin(b = 20)),
+              plot.title   = element_text(size = text_size + 2, face = "bold", hjust = 0.5))
+      p})
+    
+    output$resultsDotplot <- renderPlotly({
+      req(plot_obj())
+      ggplotly(plot_obj(), tooltip = "text")})
+    
+    
+    # Combined plot downloads UI
+    output$downloadPlotUI <- renderUI({
+      req(resultsVal()$included)
+      shinyWidgets::dropdownButton(
+        label = "Download Plot",
+        icon = icon("download"),
+        circle = FALSE,
+        status = "secondary",
+        width = "300px",
+        tags$h4("Download Format"),
+        downloadButton(ns("downloadPlotHTML"), "HTML", class = "btn-block"),
+        downloadButton(ns("downloadPlotPNG"), "PNG",   class = "btn-block"),
+        downloadButton(ns("downloadPlotJPG"), "JPG",   class = "btn-block")
+      )
+    })
+    
+    # --- Descarga HTML Combinado (Solución Robusta) ---
+    output$downloadPlotHTML <- downloadHandler(
+      filename = function() paste0("MetaEnrichGO_plot_", Sys.Date(), ".html"),
+      content = function(file) {
+        # 1. Calcular altura en píxeles
+        plot_h_px <- max(600, input$nPlotTerms * 25)
+        
+        # 2. Crear el widget
+        plt <- ggplotly(plot_obj(), 
+                        height = plot_h_px, 
+                        width = 1200, 
+                        tooltip = "text")
+        
+        # 3. INYECCIÓN DE CSS: Forzar altura
+        plt <- htmlwidgets::prependContent(plt, tags$style(HTML(paste0(
+          ".plotly { height: ", plot_h_px, "px !important; width: 1200px !important; }"
+        ))))
+        
+        # 4. Guardar
+        htmlwidgets::saveWidget(plt, file, selfcontained = TRUE)
+      })
+    
+    output$downloadPlotPNG <- downloadHandler(
+      filename = function() paste0("MetaEnrichGO_plot_", Sys.Date(), ".png"),
+      content = function(file) {
+        # Cálculo de altura dinámica en pulgadas
+        plot_h_in <- max(8, input$nPlotTerms * 0.35)
+        
+        ggsave(file, plot = plot_obj(), device = "png", 
+               width = 12.5, height = plot_h_in, units = "in", dpi = 96)
+      })
+    
+    output$downloadPlotJPG <- downloadHandler(
+      filename = function() paste0("MetaEnrichGO_plot_", Sys.Date(), ".jpg"),
+      content = function(file) {
+        # Cálculo de altura dinámica en pulgadas
+        plot_h_in <- max(8, input$nPlotTerms * 0.35)
+        
+        ggsave(file, plot = plot_obj(), device = "jpeg", 
+               width = 12.5, height = plot_h_in, units = "in", dpi = 96)
+      })
+    
+    
+    
+    
+    
+    
+    ###############################################################################
+    
+    #----------------------- NAVIGATION FUNCTIONS --------------------------------#
+    
+    ###############################################################################
+    
+    
+    # Show the example of file that the app accepts (blue "i" button)
+    observeEvent(input$showExample, {
+      showModal(
+        modalDialog(
+          title = tags$div("Example File Contents", style = "text-align: center; font-weight: bold; font-size: 20px;"),
+          easy_close = TRUE,
+          size = "l",
+          fluidRow(
+            column(12, 
+                   tags$h5("Text Format (.txt)"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>COL10A1\nCOL11A1\nGREM1\nMMP1\nMMP12\nSPINK1\nSPP1\nSULF1\nTOX3\nTOP2A</pre>"))),
+          
+          tags$h6("Important Notes"),
+          tags$div(style = "margin-top: 10px;",
+                   tags$p(HTML("<b>• Accepted format:</b> Only <code>.txt</code> files are supported for this input type."),
+                          style = "margin-bottom: 6px;"),
+                   tags$p(HTML("<b>• One gene per line:</b> Each row should contain a single gene name. No additional values allowed."),
+                          style = "margin-bottom: 6px;"),
+                   tags$p(HTML("<b>• No headers:</b> Do <u>not</u> include any header row. Input should start directly with gene names."),
+                          style = "margin-bottom: -6px;")),
+          footer = modalButton("Close")))})
+    
+    
+    # Show the example of file that the app accepts for annotations (blue "i" button)
+    observeEvent(input$showPersonalizedInfo, {
+      showModal(
+        modalDialog(
+          title = tags$div("Example File Contents: Personalized Annotations", style = "text-align: center; font-weight: bold; font-size: 20px;"),
+          easy_close = TRUE,
+          size = "l",
+          fluidRow(
+            column(12, 
+                   tags$h5("Two-Column Annotation Format (Tab-Separated)"),
+                   HTML('<pre style="background-color:#f8f9fa; padding:15px; border-radius:5px; overflow-x: auto;">
+FeatureID\tAnnotationValue
+CYP2D7\tMembrane
+CYP2D7\tMulti-pass membrane protein
+CYP2D7\tCytoplasm
+PIGBOS1\tMitochondrion outer membrane
+PIGBOS1\tSingle-pass membrane protein
+MT-RNR1\tNucleus
+MT-RNR1\tMitochondrion
+CD300H\tMembrane
+CD300H\tSingle-pass type I membrane protein
+NBDY\tCytoplasm</pre>'))),
+          
+          tags$h6("Important Notes for Annotation File"),
+          tags$div(style = "margin-top: 10px;",
+                   tags$p(HTML("<b>• Single File, Two Columns:</b> You must upload a <b>single annotation file</b> containing exactly two columns."),
+                          style = "margin-bottom: 8px;"),
+                   tags$p(HTML("<b>• Required Header:</b> The file <b>must</b> include a header row (e.g., <code>FeatureID\\tAnnotationValue</code>)."),
+                          style = "margin-bottom: 8px;"),
+                   tags$p(HTML("<b>• Column Content:</b> The <b>first column</b> should contain your features (e.g., Gene Symbols, IDs) and the <b>second column</b> their corresponding description or value (e.g., location, function, group)."),
+                          style = "margin-bottom: 8px;"),
+                   tags$p(HTML("<b>• Accepted Separator:</b> The file must be separated by either <b>tabs (<code>.tsv</code>, <code>.txt</code>)</b> or <b>commas (<code>.csv</code>)</b>."),
+                          style = "margin-bottom: 8px;")
+          ),
+          tags$hr(),
+          tags$h6("⚠️ CRITICAL WARNING: Feature Nomenclature"),
+          tags$p(HTML("<b>Ensure the feature names (IDs) in this annotation file exactly match the nomenclature (case-sensitivity, version) used in your input list(s) to avoid recognition issues during the analysis.</b>"), 
+                 style = "color: #b03a2e; margin-bottom: 0px;"),
+          footer = modalButton("Close")
+        )
+      )
+    })
+    
+    
+    
+    # 1) Reactive único que calcula el número total de listas de entrada
+    totalLists <- reactive({
+      req(input$inputMethod)
+      if (isTRUE(input$useExampleData)) {
+        4
+      } else if (input$inputMethod == "files" && !is.null(input$files)) {
+        length(input$files$datapath)
+      } else if (input$inputMethod == "paste" &&
+                 !is.null(input$pastedGenes) && nzchar(input$pastedGenes)) {
+        txt <- input$pastedGenes
+        if (grepl("###", txt, fixed = TRUE)) {
+          length(strsplit(txt, "###", fixed = TRUE)[[1]])
+        } else {
+          1}} else {
+            0}})
+    
+    # 2) Actualizar el slider usando totalLists()
+    observe({n <- totalLists()
+    if (n > 0) {
+      isolate({
+        updateSliderInput(session, "termThreshold",
+                          min   = 1,
+                          max   = n,
+                          step  = 1,
+                          value = n)})}})
+    
+    # 3) Mostrar/ocultar controles según el nº de listas
+    observe({n <- totalLists()
+    shinyjs::toggle(id = "metaAnalysisMethod", condition = n > 1)
+    shinyjs::toggle(id = "termThreshold",     condition = n > 1)})
+    
+    
+    # Descarga de archivo de anotación de ejemplo
+    output$downloadPersonalizedExample <- downloadHandler(
+      filename = function() {
+        "protein_location_example.txt"
+      },
+      content = function(file) {
+        src_path <- "./example_data/protein_location.txt"
+        
+        if (!file.exists(src_path)) {
+          stop("Error: El archivo de ejemplo no se encontró en la ruta especificada: ", src_path)
+        }
+        
+        file.copy(src_path, file)
+      }
+    )
+    
+    
+    # Download button that allows to obtain the example data used in the app as ".zip"
+    output$downloadExample <- downloadHandler(
+      filename = function() {"MetaEnrich_example_data.zip"},
+      content  = function(zipfile) {
+        tmp <- tempdir()
+        files_cp <- file.path(tmp, basename(exampleFiles))
+        file.copy(exampleFiles, files_cp, overwrite = TRUE)
+        
+        owd <- setwd(tmp)
+        on.exit(setwd(owd), add = TRUE)
+        utils::zip(
+          zipfile = zipfile,
+          files   = basename(files_cp),
+          extras  = "-j")},
+      contentType = "application/zip")
+    
+    
+    # Prepare some important data
+    selectedOrganism <- reactive({input$organism})
+    
+    
+    # INPUT CONTROL BY RESTARTING THE DATA 
+    prev_input_method <- reactiveVal("files")
+    observeEvent(input$inputMethod, {
+      prev <- prev_input_method()
+      
+      if (input$inputMethod == "paste" && prev == "files") {
+        shinyjs::reset("files")
+        updateSwitchInput(session, "useExampleData", value = FALSE)}
+      
+      if (input$inputMethod == "files" && prev == "paste") {
+        updateTextInput(session, "pastedGenes", value = "")}
+      
+      prev_input_method(input$inputMethod)})
+    
+    
+    #' Validate files for MetaEnrichGO
+    #' @param input Shiny input object
+    #' @param session Shiny session object
+    #' @return TRUE if valid; FALSE if any file had wrong format
+    
+    validate_file_format_metaenrichgo <- function(input, session) {
+      bad_files <- list()
+      
+      files <- if (input$inputMethod == "files") input$files$datapath else NULL
+      file_names <- if (input$inputMethod == "files") input$files$name else NULL
+      
+      if (is.null(files)) return(TRUE)
+      
+      for (i in seq_along(files)) {
+        lines <- readLines(files[i], warn = FALSE, encoding = "UTF-8")
+        lines <- trimws(lines[nzchar(lines)]) 
+        
+        if (any(grepl("#", lines))) {
+          bad_files[[file_names[i]]] <- "Contains invalid characters like '#'."
+          next}
+        
+        if (any(grepl("[,\t]", lines))) {
+          bad_files[[file_names[i]]] <- "Files must contain only one gene symbol per line (no commas or tabs)."
+          next}}
+      
+      if (length(bad_files) > 0) {
+        showModal(modalDialog(
+          title = "⚠️ Format Errors Detected",
+          size = "l",
+          easyClose = TRUE,
+          footer = modalButton("Close"),
+          tags$ul(
+            lapply(names(bad_files), function(f) {
+              tags$li(HTML(paste("<b>", f, "</b>: ", bad_files[[f]])))
+            })
+          ),
+          tags$hr(),
+          fluidRow(
+            column(12,
+                   tags$h4("Expected Format"),
+                   tags$p("Each uploaded file must contain a plain list of gene identifiers, one per line, with no headers or separators."),
+                   tags$h5("Valid Examples by ID Type and Organism"),
+                   fluidRow(
+                     column(4, wellPanel(
+                       tags$strong("SYMBOL / HUMAN"),
+                       HTML("<pre>BRCA1\nTP53\nMYC</pre>"))),
+                     column(4, wellPanel(
+                       tags$strong("SYMBOL / MOUSE"),
+                       HTML("<pre>Trp53\nMyc\nEgfr</pre>"))),
+                     column(4, wellPanel(
+                       tags$strong("SYMBOL / RAT"),
+                       HTML("<pre>Tp53\nMyc\nEgfr</pre>")))),
+                   fluidRow(
+                     column(4, wellPanel(
+                       tags$strong("ENTREZID / HUMAN"),
+                       HTML("<pre>672\n7157\n4609</pre>"))),
+                     column(4, wellPanel(
+                       tags$strong("ENTREZID / MOUSE"),
+                       HTML("<pre>22059\n17869\n13649</pre>"))),
+                     column(4, wellPanel(
+                       tags$strong("ENTREZID / RAT"),
+                       HTML("<pre>24842\n116538\n25499</pre>")))),
+                   fluidRow(
+                     column(4, wellPanel(
+                       tags$strong("ENSEMBL / HUMAN"),
+                       HTML("<pre>ENSG00000012048\nENSG00000141510\nENSG00000136997</pre>"))),
+                     column(4, wellPanel(
+                       tags$strong("ENSEMBL / MOUSE"),
+                       HTML("<pre>ENSMUSG00000059552\nENSMUSG00000059552\nENSMUSG00000020122</pre>"))),
+                     column(4, wellPanel(
+                       tags$strong("ENSEMBL / RAT"),
+                       HTML("<pre>ENSRNOG00000016647\nENSRNOG00000019902\nENSRNOG00000000007</pre>"))))))))
+        return(FALSE)}
+      return(TRUE)}
+    
+    
+    #' Validate pasted gene lists (one gene per line, lists separated by ###)
+    #' @param input   Shiny input object
+    #' @param session Shiny session object
+    #' @return TRUE if valid; FALSE (and shows modal) if format is incorrect
+    
+    validate_paste_format <- function(input, session) {
+      if (!(input$inputMethod == "paste" && nzchar(input$pastedGenes))) {
+        return(TRUE)}
+      
+      txt       <- input$pastedGenes
+      bad_chars <- grepl("[,;|:\\t\\]", txt)
+      
+      if ( bad_chars) {
+        showModal(modalDialog(
+          title = tags$div("⚠️ Paste Format Error",
+                           style = "text-align:center;font-weight:bold;font-size:20px;"),
+          easyClose = TRUE, size = "l",
+          
+          tags$h5("Correct Format Examples", style = "margin-bottom:10px;"),
+          fluidRow(
+            column(4, tags$h6("SYMBOL"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>TP53\nMYC\n###\nBRCA1\nPTEN\n...</pre>")),
+            column(4, tags$h6("ENTREZID"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>7157\n4609\n###\n672\n5728\n...</pre>")),
+            column(4, tags$h6("ENSEMBL"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>ENSG00000141510\nENSG00000136997\n###\nENSG00000012048\nENSG00000171862\n...</pre>"))),
+           tags$h5("Possible Issues"),
+          tags$div(style = "margin-top:10px;",
+                   tags$p("- You must include '###' on its own line to separate multiple lists."),
+                   tags$p("- Do NOT use commas (,), tabs, periods (.), hyphens (-), semicolons (;), or pipes (|) in gene lines."),
+                   tags$p("- Paste only raw gene identifiers, one per line.")),
+          
+           tags$h5("Recommendations"),
+          tags$div(style = "margin-top:10px;",
+                   tags$p("- Use '###' to split each ranked list."),
+                   tags$p("- Avoid CSV/TSV formats or pasted tables."),
+                   tags$p("- Each line must contain exactly one gene identifier.")),
+          
+          footer = modalButton("Close")))
+        
+        shinyjs::disable("runButton")
+        shinyjs::delay(100, shinyjs::enable("runButton"))
+        return(FALSE)}
+      return(TRUE)}
+    
+    
+    #' Validate organism nomenclature
+    #' @param geneLists Character vector of genes to validate
+    #' @param organism  One of "Hsa", "Mmu", "Rno"
+    #' @param session   Shiny session (para showModal)
+    #' @return TRUE if valid; FALSE (and shows modal) if any invalid genes found
+    
+    validate_organism <- function(gene_list, organism, ID_type, session) {
+      if (length(gene_list) == 0) return(TRUE)
+      
+      # Define pattern based on ID_type and organism
+      pattern <- switch(ID_type,
+                        SYMBOL = switch(organism,
+                                        Hsa = "^[A-Z][A-Z0-9._/\\-]*$",         # Human SYMBOL
+                                        Mmu = "^[A-Z][a-z0-9._/\\-]*$",         # Mouse SYMBOL
+                                        Rno = "^[A-Z][a-z0-9._/\\-]*$",         # Rat SYMBOL
+                                        NULL),
+                        ENTREZID = "^[0-9]+$",                                  # Only digits
+                        ENSEMBL = switch(organism,
+                                         Hsa = "^ENSG[0-9]{11}$",               # Human ENSEMBL
+                                         Mmu = "^ENSMUSG[0-9]{11}$",            # Mouse ENSEMBL
+                                         Rno = "^ENSRNOG[0-9]{11}$",            # Rat ENSEMBL
+                                         NULL),
+                        NULL)
+      
+      if (is.null(pattern)) return(TRUE)
+      
+      # Organism display names for modal
+      organism_names <- list(
+        Hsa = "<i>Homo sapiens</i> (Human)",
+        Mmu = "<i>Mus musculus</i> (Mouse)",
+        Rno = "<i>Rattus norvegicus</i> (Rat)")
+      
+      invalid <- unique(gene_list[!grepl(pattern, gene_list)])
+      if (length(invalid) > 0) {
+        show_genes <- head(invalid, 5)
+        extra_note <- if (length(invalid) > 5) paste0("… and ", length(invalid) - 5, " more") else ""
+        
+        showModal(modalDialog(
+          title = tags$div("⚠️ Organism–Gene Nomenclature Issue",
+                           style = "text-align:center; font-weight:bold; font-size:20px;"),
+          easyClose = TRUE, size = "l",
+          
+          tags$h5(HTML(paste("Selected organism:", organism_names[[organism]])), style = "margin-bottom:10px;"),
+          tags$p("The following gene names do not match the expected format for the selected organism:"),
+          tags$pre(paste(c(show_genes, extra_note), collapse = "\n"),
+                   style = "background-color:#f8f9fa; padding:10px; border-radius:5px;"),
+          tags$h5("Expected Formats:", style = "margin-top:20px;"),
+          fluidRow(
+            column(4, tags$h6(HTML("Format for <i>Homo sapiens</i> (Human)"), style = "margin-top:15px;"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>BRCA1\n672\nENSG00000012048</pre>"),
+                   tags$p(HTML("<b>• SYMBOL:</b> All uppercase letters (e.g., <code>BRCA1</code>, <code>TP53</code>).")),
+                   tags$p(HTML("<b>• ENTREZID:</b> Numerical only, specific to NCBI Entrez (e.g., <code>672</code>).")),
+                   tags$p(HTML("<b>• ENSEMBL:</b> Ensembl human genes start with <code>ENSG</code> (e.g., <code>ENSG00000012048</code>)."))),
+            column(4, tags$h6(HTML("Format for <i>Mus musculus</i> (Mouse)"), style = "margin-top:15px;"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>Brca1\n12189\nENSMUSG00000017146</pre>"),
+                   tags$p(HTML("<b>• SYMBOL:</b> Capitalized first letter, rest lowercase (e.g., <code>Brca1</code>, <code>Tp53</code>).")),
+                   tags$p(HTML("<b>• ENTREZID:</b> Numerical only (e.g., <code>12189</code>).")),
+                   tags$p(HTML("<b>• ENSEMBL:</b> Ensembl mouse genes start with <code>ENSMUSG</code> (e.g., <code>ENSMUSG00000017146</code>)."))),
+            column(4, tags$h6(HTML("Format for <i>Rattus norvegicus</i> (Rat)"), style = "margin-top:15px;"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>Brca1\n24169\nENSRNOG00000020708</pre>"),
+                   tags$p(HTML("<b>• SYMBOL:</b> Capitalized first letter, rest lowercase (e.g., <code>Brca1</code>, <code>Tp53</code>).")),
+                   tags$p(HTML("<b>• ENTREZID:</b> Numerical only (e.g., <code>24169</code>).")),
+                   tags$p(HTML("<b>• ENSEMBL:</b> Ensembl rat genes start with <code>ENSRNOG</code> (e.g., <code>ENSRNOG00000020708</code>).")))),
+          
+          footer = modalButton("Close")))
+        return(FALSE)}
+      return(TRUE)}
+    
+    
+    #' Validate geneid format
+    #' @param gene_list Character vector of genes to validate
+    #' @param ID_type  One of "SYMBOL", "ENSEMBL", "ENTREZID"
+    #' @param session   Shiny session (para showModal)
+    #' @return TRUE if valid; FALSE (and shows modal) if any invalid genes found
+    
+    validate_gene_ids <- function(gene_vector, ID_type, session) {
+      if (length(gene_vector) == 0) return(TRUE)
+      
+      gene_list <- as.character(gene_vector)
+      
+      ensembl_pattern <- "^ENS[A-Z]{0,4}[0-9]{6,}$"
+      pattern <- switch(ID_type,
+                        SYMBOL   = "^[A-Za-z][A-Za-z0-9._/\\-]*$",
+                        ENTREZID = "^[0-9]+$",
+                        ENSEMBL  = ensembl_pattern,
+                        stop("Unsupported ID type"))
+      
+      is_valid <- grepl(pattern, gene_list)
+      
+      # Validación extra: excluir Ensembl si el tipo es SYMBOL
+      if (ID_type == "SYMBOL") {
+        is_ensembl_like <- grepl(ensembl_pattern, gene_list)
+        is_valid <- is_valid & !is_ensembl_like}
+      
+      invalid <- gene_list[!is_valid]
+      
+      if (length(invalid) > 0) {
+        show_genes <- head(invalid, 5)
+        extra_note <- if (length(invalid) > 5) paste0("… and ", length(invalid) - 5, " more") else ""
+        
+        showModal(modalDialog(
+          title = tags$div("⚠️ Gene ID Format Error",
+                           style = "text-align: center; font-weight: bold; font-size: 20px;"),
+          easyClose = TRUE,
+          size = "l",
+          
+          tags$h5(paste("Selected ID type:", ID_type), style = "margin-bottom: 10px;"),
+          tags$p("The following gene identifiers do not match the expected format:"),
+          tags$pre(paste(c(show_genes, extra_note), collapse = "\n"),
+                   style = "background-color:#f8f9fa; padding:10px; border-radius:5px;"),
+          
+          tags$h5("Expected Formats:", style = "margin-top:20px;"),
+          fluidRow(
+            column(4, tags$h6(HTML("Format for <i>Homo sapiens</i> (Human)"), style = "margin-top:10px;"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>BRCA1\n672\nENSG00000012048</pre>"),
+                   tags$p(HTML("<b>• SYMBOL:</b> All uppercase letters (e.g., <code>BRCA1</code>, <code>TP53</code>).")),
+                   tags$p(HTML("<b>• ENTREZID:</b> Numerical only, e.g., <code>672</code>.")),
+                   tags$p(HTML("<b>• ENSEMBL:</b> Starts with <code>ENSG</code> (e.g., <code>ENSG00000012048</code>)."))),
+            column(4, tags$h6(HTML("Format for <i>Mus musculus</i> (Mouse)"), style = "margin-top:10px;"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>Brca1\n12189\nENSMUSG00000017146</pre>"),
+                   tags$p(HTML("<b>• SYMBOL:</b> First letter uppercase, rest lowercase (e.g., <code>Brca1</code>).")),
+                   tags$p(HTML("<b>• ENTREZID:</b> Numerical only, e.g., <code>12189</code>.")),
+                   tags$p(HTML("<b>• ENSEMBL:</b> Starts with <code>ENSMUSG</code> (e.g., <code>ENSMUSG00000017146</code>)."))),
+            column(4, tags$h6(HTML("Format for <i>Rattus norvegicus</i> (Rat)"), style = "margin-top:10px;"),
+                   HTML("<pre style='background-color:#f8f9fa; padding:10px; border-radius:5px;'>Brca1\n24169\nENSRNOG00000020708</pre>"),
+                   tags$p(HTML("<b>• SYMBOL:</b> First letter uppercase, rest lowercase (e.g., <code>Brca1</code>).")),
+                   tags$p(HTML("<b>• ENTREZID:</b> Numerical only, e.g., <code>24169</code>.")),
+                   tags$p(HTML("<b>• ENSEMBL:</b> Starts with <code>ENSRNOG</code> (e.g., <code>ENSRNOG00000020708</code>).")))),
+          
+          footer = modalButton("Close")))
+        return(FALSE) }
+      return(TRUE)}
+    
+    
+    #' Check if enrichment results are empty and show modal if so
+    #' @param results  Data.frame or object with enrichment results
+    #' @param session  Shiny session object
+    #' @return TRUE if results are non-empty; FALSE (and shows modal) if empty
+    
+    check_empty_results <- function(results, session) {
+      is_empty <- is.null(results) || (is.data.frame(results) && nrow(results) == 0)
+      
+      if (is_empty) {
+        showModal(modalDialog(
+          title = tags$div("⚠️ No Enrichment Results Found", 
+                           style = "text-align: center; font-weight: bold; font-size: 20px;"),
+          easyClose = TRUE,
+          size = "l",
+          tags$h4("No biological terms matched your input genes"),
+          tags$p("The enrichment analysis did not find any relevant pathways, terms or functions associated with the provided gene list."),
+          tags$hr(),
+          tags$h4("Suggestions to improve your input"),
+          tags$ul(
+            tags$li("Check the organism selection (e.g., Human, Mouse or Rat)."),
+            tags$li("Verify gene identifiers and formats (e.g., SYMBOL, ENTREZID or ENSEMBL)."),
+            tags$li("Ensure your genes are annotated in the selected database."),
+            tags$li("Use more genes if possible — small lists often yield no results.")),
+          tags$p("If the problem persists, try example data to confirm the tool is working."),
+          footer = modalButton("Close")))
+        return(FALSE)}
+      return(TRUE)}
+    
+    
+    #-------------------------------------------------------------------------------
+    # Personalized Annotation File Format Validation
+    #-------------------------------------------------------------------------------
+    check_annotation_file_format <- function(file_path, session) {
+      # 1. Attempt to read the file, assuming common delimiters.
+      # Use tryCatch to handle errors if the file doesn't exist or is corrupt.
+      tryCatch({
+        
+        # Try reading with tab separator first (assuming TSV/TXT)
+        df <- data.table::fread(file_path, header = TRUE, data.table = FALSE, check.names = FALSE, sep = "\t", nrows = 5)
+        
+        # If reading with tab failed (e.g., only 1 column), try with comma (CSV)
+        if (ncol(df) <= 1) {
+          df <- data.table::fread(file_path, header = TRUE, data.table = FALSE, check.names = FALSE, sep = ",", nrows = 5)
+        }
+        
+        # 2. Check the column count
+        if (ncol(df) != 2) {
+          showModal(modalDialog(
+            title = HTML("❌ Annotation File Format Error"),
+            tags$h4(paste0("The annotation file must contain **exactly 2 columns**, but ", ncol(df), " were detected.")),
+            tags$p("Ensure your file (CSV, TSV, or TXT) has only two fields: **Feature ID** and **Annotation Value/Description**, and that the correct separator was used."),
+            tags$hr(),
+            tags$h5("Format Suggestions:"),
+            tags$ul(
+              tags$li("It must include a **header row**."),
+              tags$li("Check if the separator is a comma (`,`) or a tab (`\t`)."),
+              tags$li("Ensure the file does not contain spurious lines or multiple consecutive delimiters.")
+            ),
+            easyClose = TRUE,
+            footer = modalButton("Close")
+          ))
+          return(FALSE)
+        }
+        
+        # If the column check passes:
+        return(TRUE)
+        
+      }, error = function(e) {
+        showModal(modalDialog(
+          title = HTML("❌ File Reading Error"),
+          tags$h4("The personalized annotation file could not be read."),
+          tags$p(paste0("The error detected is: ", e$message)),
+          tags$p("Please verify that the file is in a valid plain text format (CSV, TSV, TXT)."),
+          easyClose = TRUE,
+          footer = modalButton("Close")
+        ))
+        return(FALSE)
+      })
+    }
+    
+    
+    
+    
+  })}
